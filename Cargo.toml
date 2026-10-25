@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["crates/providers"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+license-file = "LICENSE"
+
+[profile.release]
+panic = "unwind"
+lto = true
+codegen-units = 1
+opt-level = "s"
+strip = true

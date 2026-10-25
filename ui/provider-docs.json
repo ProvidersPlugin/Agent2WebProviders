@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "description": {
+    "zh-CN": "网页提供商通过独立插件接入，智谱清言不属于 Agent 提供商。账号与模型数据沿用原提供商标识。",
+    "zh-Hant": "網頁提供商透過獨立外掛接入，智譜清言不屬於 Agent 提供商。帳號與模型資料沿用原提供商識別碼。",
+    "en": "Web providers are supplied by a separate plugin. Zhipu Qingyan is a web provider, not an Agent provider. Existing account and model identifiers are preserved.",
+    "ja": "Web プロバイダーは独立したプラグインで追加されます。智譜清言は Agent ではなく Web プロバイダーです。既存のアカウントとモデルの識別子を維持します。",
+    "ko": "웹 제공업체는 별도 플러그인으로 추가됩니다. Zhipu Qingyan은 Agent가 아닌 웹 제공업체입니다. 기존 계정과 모델 식별자는 유지됩니다.",
+    "pt-BR": "Os provedores web são fornecidos por um plugin separado. Zhipu Qingyan é um provedor web, não um provedor Agent. Os identificadores existentes de contas e modelos são preservados."
+  },
+  "providers": {
+    "chatglm": {
+      "capabilities": {
+        "chat": { "status": "supported" },
+        "refresh": { "status": "supported" },
+        "model_refresh": { "status": "supported" },
+        "usage": {
+          "status": "supported",
+          "note": {
+            "zh-CN": "仅登录账号可查询积分；访客账号没有积分体系。",
+            "zh-Hant": "僅登入帳號可查詢積分；訪客帳號沒有積分系統。",
+            "en": "Points queries are available only for signed-in accounts. Guest accounts have no points system.",
+            "ja": "ポイント照会はログイン済みアカウントのみ対象です。ゲストアカウントにはポイント機能がありません。",
+            "ko": "포인트 조회는 로그인 계정에서만 가능합니다. 게스트 계정에는 포인트 시스템이 없습니다.",
+            "pt-BR": "A consulta de pontos está disponível apenas para contas autenticadas. Contas de convidado não têm sistema de pontos."
+          }
+        },
+        "checkin": { "status": "supported" },
+        "claims": { "status": "supported" }
+      },
+      "notes": [
+        {
+          "zh-CN": "支持访客模式、粘贴令牌和 Windows 本机登录态导入。访客可对话并换发凭证；积分、签到、会员活动、新手任务和每日任务仅对登录账号有效。",
+          "zh-Hant": "支援訪客模式、貼上權杖和 Windows 本機登入狀態匯入。訪客可對話並換發憑證；積分、簽到、會員活動、新手任務和每日任務僅對登入帳號有效。",
+          "en": "Supports guest mode, pasted tokens and local Windows sign-in import. Guests can chat and renew credentials; points, check-in, member rewards, onboarding and daily tasks require a signed-in account.",
+          "ja": "ゲストモード、トークン貼り付け、Windows のローカルログイン情報の取り込みに対応します。ゲストは会話と認証情報の更新が可能です。ポイント、チェックイン、会員報酬、初回タスク、日次タスクにはログインが必要です。",
+          "ko": "게스트 모드, 토큰 붙여넣기, Windows 로컬 로그인 가져오기를 지원합니다. 게스트는 대화와 인증 정보 갱신이 가능하며 포인트, 체크인, 회원 보상, 신규 및 일일 작업에는 로그인 계정이 필요합니다.",
+          "pt-BR": "Suporta modo convidado, tokens colados e importação do login local no Windows. Convidados podem conversar e renovar credenciais; pontos, check-in, recompensas e tarefas iniciais e diárias exigem uma conta autenticada."
+        }
+      ]
+    }
+  }
+}
