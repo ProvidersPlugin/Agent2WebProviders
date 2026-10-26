@@ -61,7 +61,7 @@ dependencies = [
 
 [[package]]
 name = "agent2api-web-providers"
-version = "0.1.0"
+version = "3.3.0-beta.4"
 dependencies = [
  "aes-gcm",
  "agent2api-provider-protocol",
