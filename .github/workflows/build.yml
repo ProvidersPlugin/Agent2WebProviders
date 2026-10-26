@@ -1,0 +1,48 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '要发布的版本号（不带 v，源码 tag 必须已存在）'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 解析源码版本
+        id: meta
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="$INPUT_VERSION"
+          fi
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]] || {
+            echo "::error::版本号不合法: $VERSION"
+            exit 1
+          }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "ref=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: 派发 Web 提供商构建
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.BUILDER_DISPATCH_TOKEN }}
+          repository: Agent2Builder/agent2api-providers-releases
+          event-type: web-release
+          client-payload: '{"ref": "${{ steps.meta.outputs.ref }}", "version": "${{ steps.meta.outputs.version }}"}'
+
+      - name: 构建位置
+        run: printf '%s\n' 'https://github.com/Agent2Builder/agent2api-providers-releases/actions/workflows/web-release.yml'
