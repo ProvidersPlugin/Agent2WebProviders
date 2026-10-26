@@ -3,7 +3,6 @@ use agent2api_provider_sdk::PluginCtx;
 use serde_json::Value;
 
 use crate::errors::GatewayError;
-use crate::logging;
 use super::{credentials, http};
 
 // ─── 凭证写回 ──────────────────────────────────────────────────
@@ -14,8 +13,7 @@ use super::{credentials, http};
 /// 设备号 `deviceId` **绝不能动**：它是身份的一部分（见模块头），换掉等于换一个
 /// 访客身份、已累积的免费额度作废。所以走 `store::with_fields` 而不是整份替换。
 ///
-/// 写回失败**不**让本次请求失败（令牌已经在手上，这次能转发）：只记一条详细
-/// 日志。与网关内置版 `let _ = store.update_chatglm_tokens(...)` 同一取舍。
+/// 轮换后的令牌必须可靠落盘；并发写入冲突时回读当前令牌，不返回未保存的一份。
 pub(super) async fn save_tokens(
     ctx: &PluginCtx,
     account: &str,
@@ -24,14 +22,11 @@ pub(super) async fn save_tokens(
     refresh: &str,
     is_guest: Option<bool>,
     uid: Option<&str>,
-) {
-    let mut next = crate::store::with_fields(
-        record,
-        &[
-            ("accessToken", Value::String(access.to_string())),
-            ("refreshToken", Value::String(refresh.to_string())),
-        ],
-    );
+) -> Result<String, GatewayError> {
+    let mut next = crate::store::with_fields(record, &[("accessToken", Value::String(access.to_string()))]);
+    if !refresh.trim().is_empty() {
+        next = crate::store::with_fields(&next, &[("refreshToken", Value::String(refresh.to_string()))]);
+    }
     if let Some(is_guest) = is_guest {
         next = crate::store::with_fields(&next, &[("isGuest", Value::Bool(is_guest))]);
     }
@@ -40,17 +35,15 @@ pub(super) async fn save_tokens(
     }
     // 记录形态 → secret 形态（去掉 `store::record` 补上的键，否则比较永远不等）
     let expect = secret_of(record);
-    match crate::store::save(ctx, account, &expect, &secret_of(&next)).await {
-        Ok(true) => {}
-        Ok(false) => logging::verbose(
-            "[Chatglm]",
-            &format!("账号 {account} 的令牌写回被跳过（记录已变，本次仍用新令牌）"),
-        ),
-        Err(error) => logging::verbose(
-            "[Chatglm]",
-            &format!("账号 {account} 的令牌写回失败：{}", error.message),
-        ),
+    if crate::store::save(ctx, account, &expect, &secret_of(&next)).await? {
+        return Ok(access.to_string());
     }
+    let latest = crate::store::record(ctx, super::ID, account).await?;
+    let current = credentials::from_record(Some(&latest))?;
+    if current.bearer() == credentials::from_record(Some(record))?.bearer() {
+        return Err(GatewayError::with_status(409, "智谱清言续期结果未能落盘，请重新登录该账号"));
+    }
+    Ok(current.bearer())
 }
 
 /// 记录形态 → secret 形态（去掉 `store::record` 补上的三个键）。

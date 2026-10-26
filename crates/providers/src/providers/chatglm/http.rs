@@ -174,7 +174,7 @@ pub fn check_envelope(value: &Value, _what: &str) -> Result<Value, GatewayError>
         .unwrap_or("上游返回失败");
     Err(GatewayError {
         message: format!("上游返回 {status}: {message}"),
-        status_code: 502,
+        status_code: if matches!(status, 40003 | 40103) { 401 } else { 502 },
         upstream_code: Some(status),
         code: None,
     })

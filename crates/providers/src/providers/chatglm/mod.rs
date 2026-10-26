@@ -329,8 +329,11 @@ impl Provider for ChatglmProvider {
         Box::pin(async move {
             let record = crate::store::record(ctx, ID, account).await?;
             let credentials = credentials::from_record(Some(&record))?;
-            // 访客（或没有 refresh_token 的记录）：重新换发访客凭证
-            if credentials.is_guest || credentials.refresh_token.trim().is_empty() {
+            if !credentials.is_guest && credentials.refresh_token.trim().is_empty() {
+                return Err(GatewayError::with_status(401, "智谱清言登录账号缺少刷新令牌，请重新登录")
+                    .into_control_message());
+            }
+            if credentials.is_guest {
                 let (access, refresh, uid) = http::guest_access(&credentials.device_id, None)
                     .await
                     .map_err(|error| {
@@ -340,8 +343,8 @@ impl Provider for ChatglmProvider {
                         )
                     })?;
                 // 写回账号（设备号保持不变 —— 它是身份的一部分）
-                save_tokens(ctx, account, &record, &access, &refresh, None, Some(&uid)).await;
-                return Ok(access);
+                return save_tokens(ctx, account, &record, &access, &refresh, None, Some(&uid)).await
+                    .map_err(GatewayError::into_control_message);
             }
             // 登录账号：refresh_token 续期（上游可能轮换 refresh_token，必须回写）
             let (access, rotated, uid) =
@@ -356,8 +359,8 @@ impl Provider for ChatglmProvider {
                             ),
                         )
                     })?;
-            save_tokens(ctx, account, &record, &access, &rotated, None, Some(&uid)).await;
-            Ok(access)
+            save_tokens(ctx, account, &record, &access, &rotated, None, Some(&uid)).await
+                .map_err(GatewayError::into_control_message)
         })
     }
 
@@ -378,7 +381,8 @@ impl Provider for ChatglmProvider {
             let Ok(credentials) = credentials::from_record(Some(&record)) else {
                 return Ok(false);
             };
-            Ok(credentials::token_expiring_soon(&credentials.bearer()))
+            Ok((credentials.is_guest || !credentials.refresh_token.trim().is_empty())
+                && credentials::token_expiring_soon(&credentials.bearer()))
         })
     }
 
@@ -467,9 +471,20 @@ impl Provider for ChatglmProvider {
         account: &'a str,
     ) -> SendFuture<'a, proto::CheckinReport> {
         Box::pin(async move {
-            let claim = checkin::claim_daily_login_score(ctx, account)
-                .await
-                .map_err(GatewayError::into_message)?;
+            if self.token_expiring(ctx, account).await? {
+                self.refresh_token(ctx, account).await?;
+            } else {
+                self.ensure_token(ctx, account).await?;
+            }
+            let claim = match checkin::claim_daily_login_score(ctx, account).await {
+                Err(error) if error.status_code == 401 => {
+                    self.refresh_token(ctx, account).await?;
+                    checkin::claim_daily_login_score(ctx, account).await.map_err(|error| {
+                        error.with_code("checkin_auth_retry_exhausted").into_control_message()
+                    })?
+                }
+                result => result.map_err(GatewayError::into_control_message)?,
+            };
             let mut report = checkin_report_of(&claim);
             // 两笔顺带领取（访客会在实现里中性跳过）
             let bonus = checkin::claim_bonus(ctx, account).await;
@@ -579,7 +594,7 @@ impl Provider for ChatglmProvider {
 ///
 /// `checkin.rs` 给的是内置版的 `{success, msg}` 形态：
 ///   - `success: true` → `Claimed`；
-///   - 文案含「已领」/「已经」（`10001` 与 `score: 0` 两种幂等语义）→ `Done`；
+///   - `alreadyCompleted: true`（业务码或活动开启时的零积分）→ `Done`；
 ///   - 访客 / 活动未开 → `Inactive`（中性，不是失败）；
 ///   - 其余 → `Failed`。
 fn checkin_report_of(claim: &Value) -> proto::CheckinReport {
@@ -595,15 +610,16 @@ fn checkin_report_of(claim: &Value) -> proto::CheckinReport {
         .map(str::to_string);
     let credit = claim
         .get("score")
-        .and_then(Value::as_i64)
-        .filter(|value| *value > 0)
+        .and_then(Value::as_f64)
+        .filter(|value| *value > 0.0)
         .map(|value| format!("{value} 积分"));
     let text = message.clone().unwrap_or_default();
     let outcome = if success {
         proto::CheckinOutcome::Claimed
-    } else if text.contains("已领") || text.contains("已经") {
+    } else if claim.get("alreadyCompleted").and_then(Value::as_bool) == Some(true) {
         proto::CheckinOutcome::Done
-    } else if text.contains("访客") || text.contains("没有积分") || text.contains("未开启") {
+    } else if claim.get("outcome").and_then(Value::as_str) == Some("inactive")
+        || text.contains("访客") || text.contains("没有积分") || text.contains("未开启") {
         proto::CheckinOutcome::Inactive
     } else {
         proto::CheckinOutcome::Failed

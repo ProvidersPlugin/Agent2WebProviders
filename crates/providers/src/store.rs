@@ -41,8 +41,8 @@ pub async fn record(
 
 /// 把一条 [`StoreAccount`] 摊成「网关记录形态」。
 ///
-/// `secret` 里的键全部提到顶层，再补 `id` / `provider` / `name`（后者来自
-/// `public`）。`secret` 里若已有同名字段，**以 secret 为准** —— 它才是凭证本体。
+/// `secret` 里的键全部提到顶层，`name` 缺失时从 `public` 补齐。
+/// `id` / `provider` 以网关为准；被覆盖的凭证字段保留原值供条件更新。
 pub fn record_of(account: &StoreAccount) -> Value {
     let mut merged = Map::new();
     if let Some(object) = account.public.as_object() {
@@ -50,31 +50,50 @@ pub fn record_of(account: &StoreAccount) -> Value {
             merged.insert("name".to_string(), name.clone());
         }
     }
-    merged.insert("id".to_string(), Value::String(account.id.clone()));
-    merged.insert(
-        "provider".to_string(),
-        Value::String(account.provider.clone()),
-    );
     if let Some(object) = account.secret.as_object() {
         for (key, value) in object {
             merged.insert(key.clone(), value.clone());
         }
     }
+    let mut originals = Map::new();
+    for (key, value) in [("id", &account.id), ("provider", &account.provider)] {
+        if let Some(original) = account.secret.get(key) {
+            originals.insert(key.to_string(), original.clone());
+        }
+        merged.insert(key.to_string(), Value::String(value.clone()));
+    }
+    if !originals.is_empty() {
+        merged.insert("_agent2apiOriginalIdentity".to_string(), Value::Object(originals));
+    }
+    let injected: Vec<&str> = ["id", "provider", "name"].into_iter()
+        .filter(|key| account.secret.get(*key).is_none())
+        .collect();
+    merged.insert("_agent2apiRecordKeys".to_string(), serde_json::json!(injected));
     Value::Object(merged)
 }
 
-/// 记录形态 → secret 形态（去掉 [`record_of`] 补上的三个键）。
-///
-/// ── 为什么写回前必须走一遍 ──────────────────────────────────
-/// [`record_of`] 把 `id` / `provider` / `name` 提到了顶层，而网关存的 secret
-/// **没有**这三个键。拿记录形态直接当 `expect` 去比较，结果永远不等 ——
-/// 于是"比较再写"退化成"永远不写"，症状是令牌续期后账号记录一直没变。
+/// 只移除记录投影补入的字段；凭证本来含有的 name 等字段必须参与比较再写。
 pub fn secret_view(record: &Value) -> Value {
     let mut secret = record.clone();
     if let Some(object) = secret.as_object_mut() {
-        object.remove("id");
-        object.remove("provider");
-        object.remove("name");
+        let injected = object.remove("_agent2apiRecordKeys");
+        match injected.as_ref().and_then(Value::as_array) {
+            Some(keys) => {
+                for key in keys.iter().filter_map(Value::as_str) {
+                    object.remove(key);
+                }
+            }
+            None => {
+                for key in ["id", "provider", "name"] {
+                    object.remove(key);
+                }
+            }
+        }
+        if let Some(Value::Object(originals)) = object.remove("_agent2apiOriginalIdentity") {
+            for (key, value) in originals {
+                object.insert(key, value);
+            }
+        }
     }
     secret
 }

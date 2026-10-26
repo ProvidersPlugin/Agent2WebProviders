@@ -78,9 +78,7 @@ async fn login_credentials(
 
 /// 每日登录积分（本家的「签到」）。
 ///
-/// 返回 `{success, msg}`：`result.score > 0` 是本次到账；`0` 或业务码 10001
-/// 都是「今天已经领过」—— 两者都算**成功**（幂等语义，与网页端同判据：
-/// 它把 10001 当作「已领」记本地标记，不当错误）。
+/// 正积分才是本次到账；10001 或活动明确开启时的零积分表示已领，关闭或未知活动不算完成。
 pub async fn claim_daily_login_score(
     ctx: &PluginCtx,
     account_id: &str,
@@ -101,8 +99,7 @@ pub async fn claim_daily_login_score(
     .await
     .ok()
     .and_then(|payload| http::check_envelope(&payload, "积分活动查询").ok());
-    // `score_activity_open` 返回的 result 形态是布尔或含 open 字段的对象，
-    // 两者都认；读不出来时不拦（宁可多打一次领取，也别漏签）
+    // `score_activity_open` 返回布尔或含 open 字段的对象；未知状态不能证明零积分是已领取。
     let open = match activity_open.as_ref() {
         Some(Value::Bool(flag)) => Some(*flag),
         Some(Value::Object(map)) => map
@@ -127,13 +124,14 @@ pub async fn claim_daily_login_score(
             // 「今天已领」在上游可能是业务码而不是 HTTP 错误：4xx 里带回
             // 10001 / 「已领取」文案的都当成功（幂等）
             let message = error.message.clone();
-            if message.contains("10001") || message.contains("已领") || message.contains("already")
+            if matches!(error.status_code, 400 | 409)
+                && (message.contains("10001") || message.contains("已领") || message.contains("already"))
             {
                 logging::log(
                     "[Checkin]",
                     &format!("智谱清言账号 {account_id}: 今日登录积分已领取过"),
                 );
-                return Ok(json!({ "success": true, "msg": "今日登录积分已领取过" }));
+                return Ok(json!({ "success": false, "alreadyCompleted": true, "msg": "今日登录积分已领取过" }));
             }
             return Err(error);
         }
@@ -145,7 +143,7 @@ pub async fn claim_daily_login_score(
             "[Checkin]",
             &format!("智谱清言账号 {account_id}: 今日登录积分已领取过"),
         );
-        return Ok(json!({ "success": true, "msg": "今日登录积分已领取过" }));
+        return Ok(json!({ "success": false, "alreadyCompleted": true, "msg": "今日登录积分已领取过" }));
     }
     let result = http::check_envelope(&payload, "每日登录积分领取")?;
     // `result.score` 与余额是**同一套单位**（百分之一积分），必须走同一个
@@ -155,14 +153,17 @@ pub async fn claim_daily_login_score(
         .get("score")
         .and_then(Value::as_f64)
         .or_else(|| result.as_f64())
-        .unwrap_or(0.0);
+        .ok_or_else(|| GatewayError::with_status(502, "每日登录积分响应缺少积分读数，未确认签到完成"))?;
     let score = super::balance::score_from_raw(score_raw);
+    let already = score == 0.0 && open == Some(true);
     let message = if score > 0.0 {
         format!("今日登录积分 +{score}")
     } else if open == Some(false) {
         "积分活动未开启，无登录积分可领".to_string()
-    } else {
+    } else if already {
         "今日登录积分已领取过".to_string()
+    } else {
+        "本次没有登录积分入账，活动状态尚未确认".to_string()
     };
     if score > 0.0 {
         logging::log(
@@ -170,7 +171,13 @@ pub async fn claim_daily_login_score(
             &format!("✅ 智谱清言账号 {account_id}: {message}"),
         );
     }
-    Ok(json!({ "success": true, "msg": message }))
+    Ok(json!({
+        "success": score > 0.0,
+        "alreadyCompleted": already,
+        "outcome": if score > 0.0 { "claimed" } else if already { "done" } else { "inactive" },
+        "score": score,
+        "msg": message,
+    }))
 }
 
 /// 领取类：会员积分活动抽奖 + 季节性活动领取。
