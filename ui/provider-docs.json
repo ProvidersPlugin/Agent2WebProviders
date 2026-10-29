@@ -9,6 +9,24 @@
     "pt-BR": "Os provedores web são fornecidos por um plugin separado. Zhipu Qingyan é um provedor web, não um provedor Agent. Os identificadores existentes de contas e modelos são preservados."
   },
   "providers": {
+    "deepseek-web": {
+      "capabilities": {
+        "chat": { "status": "supported" },
+        "refresh": { "status": "undeclared" },
+        "model_refresh": { "status": "undeclared" },
+        "usage": { "status": "undeclared" },
+        "checkin": { "status": "undeclared" },
+        "claims": { "status": "undeclared" }
+      },
+      "notes": [{
+        "zh-CN": "使用本人 chat.deepseek.com 的 userToken 与 Cookie。提供 deepseek-web-flash / deepseek-web-pro 两个网页模式，流式正文、思考与提示词模拟工具调用；工具结果回灌保留完整对话。不是收费 API Key，网页验证失败需手动登录，不绕过人机验证。未实测联网调用；在线模型目录、续期、余额与签到尚未确认，不声明支持。",
+        "zh-Hant": "使用本人 chat.deepseek.com 的 userToken 與 Cookie。提供兩個網頁模式、串流正文與思考，以及提示詞模擬工具呼叫。並非付費 API Key；驗證失敗須手動登入。尚未實測連線呼叫；目錄、續期、餘額與簽到未確認。",
+        "en": "Uses your own chat.deepseek.com userToken and Cookie. Exposes Flash/Pro web modes, streamed text/reasoning and prompt-based tool emulation with full history. This is not a paid API key. Human verification requires manual sign-in. Live calls are untested; remote catalog, renewal, balance and check-in are unverified.",
+        "ja": "本人の Web userToken と Cookie を使用します。Flash/Pro、本文と思考のストリーム、プロンプトによるツール呼び出しに対応します。認証確認は手動ログインが必要です。実際の通信は未検証で、モデル一覧・更新・残高・チェックインは未確認です。",
+        "ko": "본인의 웹 userToken과 Cookie를 사용합니다. Flash/Pro 모드, 텍스트와 추론 스트림, 프롬프트 기반 도구 호출을 제공합니다. 사람 확인은 수동 로그인이 필요합니다. 실제 호출과 원격 모델 목록, 갱신, 잔액, 체크인은 검증하지 않았습니다.",
+        "pt-BR": "Usa seu userToken e Cookie do site. Oferece Flash/Pro, texto/raciocínio em streaming e emulação de ferramentas por prompt com histórico completo. A verificação humana exige login manual. Chamadas reais não foram testadas; catálogo, renovação, saldo e check-in não foram confirmados."
+      }]
+    },
     "chatglm": {
       "capabilities": {
         "chat": { "status": "supported" },
