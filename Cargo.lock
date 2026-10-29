@@ -40,7 +40,7 @@ dependencies = [
 [[package]]
 name = "agent2api-provider-protocol"
 version = "0.2.1"
-source = "git+https://github.com/ProvidersPlugin/Agent2Providers?tag=v3.3.0-beta.5#dd41e66d1ef65e8cbf8e7192b427ceff1adbfda8"
+source = "git+https://github.com/ProvidersPlugin/Agent2Providers?tag=v3.3.0-beta.5.1#ba7a71a018dd7efe38bc287877021216031a8164"
 dependencies = [
  "base64 0.22.1",
  "serde",
@@ -51,7 +51,7 @@ dependencies = [
 [[package]]
 name = "agent2api-provider-sdk"
 version = "0.2.2-beta.2"
-source = "git+https://github.com/ProvidersPlugin/Agent2Providers?tag=v3.3.0-beta.5#dd41e66d1ef65e8cbf8e7192b427ceff1adbfda8"
+source = "git+https://github.com/ProvidersPlugin/Agent2Providers?tag=v3.3.0-beta.5.1#ba7a71a018dd7efe38bc287877021216031a8164"
 dependencies = [
  "agent2api-provider-protocol",
  "serde",
@@ -61,7 +61,7 @@ dependencies = [
 
 [[package]]
 name = "agent2api-web-providers"
-version = "3.3.0-beta.5"
+version = "3.3.0-beta.5.1"
 dependencies = [
  "aes-gcm",
  "agent2api-provider-protocol",

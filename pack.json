@@ -3,7 +3,7 @@
   "name": "网页提供商",
   "description": "为 Agent2API 扩展网页提供商，支持智谱清言与 DeepSeek 网页登录账号的模型调用；具体续期、目录、积分与签到能力以各提供商声明为准。",
   "license": "AGPL-3.0",
-  "version": "3.3.0-beta.5",
+  "version": "3.3.0-beta.5.1",
   "protocol": 1,
   "provider_category": "web",
   "providers": [
