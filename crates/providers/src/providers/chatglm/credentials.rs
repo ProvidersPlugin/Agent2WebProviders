@@ -7,8 +7,10 @@
 //!   访客（guest）   POST /chatglm/user-api/guest/access（空 body）换发，
 //!                   不需要任何前置登录 —— 这是本家「零配置就能用」的入口。
 //!                   换发**只依赖 X-Device-Id**：换一个设备号就是一个新访客身份。
-//!   登录账号        phone_login / auth_code_login / 粘贴 access_token 得到，
-//!                   有真实的积分、余额、每日登录积分与活动领取能力。
+//!   登录账号        phone_login / auth_code_login / 粘贴整段 Cookie 或
+//!                   access_token 得到，有真实的积分、余额、每日登录积分与
+//!                   活动领取能力。**整段 Cookie 才带 `chatglm_refresh_token`** ——
+//!                   只有访问令牌时过期即失效（access 实测 24 小时）。
 //! ```
 //!
 //! 两类共用同一套转发链路（同一个接口、同一套头），差别只在「有没有积分」：
@@ -54,6 +56,61 @@ pub const COOKIE_ACCESS_TOKEN: &str = "chatglm_token";
 
 /// 刷新令牌 cookie 名
 pub const COOKIE_REFRESH_TOKEN: &str = "chatglm_refresh_token";
+
+/// 从一段用户粘贴的文本里取某个 Cookie 的值。
+///
+/// ── 为什么需要它（issue #1）─────────────────────────────────
+/// 智谱的登录态是**两个** cookie：`chatglm_token`（访问令牌，JWT，实测 24 小时）
+/// 与 `chatglm_refresh_token`（刷新令牌，有效期以月计）。只拿到前者时，
+/// 过期后插件没有换票凭据，账号必然一天后就 401 —— 而用户手上最完整的一份
+/// 凭证就是浏览器里的整段 Cookie。这里按 cookie 语法解析，把两个值都取出来。
+///
+/// 取值规则与浏览器一致：按 `;` 分段、每段取**第一个** `=` 之后的全部
+/// （JWT 是 base64url、不带 `=`，但别的 cookie 可能有）、去掉首尾空白与成对
+/// 引号。`Cookie:` 前缀与名字都按大小写不敏感匹配 —— 用户可能整段复制
+/// DevTools 的请求头（`Cookie: chatglm_token=…`）。
+pub fn cookie_value(cookie: &str, name: &str) -> Option<String> {
+    for segment in cookie.split(';') {
+        let segment = segment.trim();
+        // DevTools 复制出来的请求头带 `Cookie:` 前缀（只出现在第一段）
+        let segment = match segment.get(..7) {
+            Some(head) if head.eq_ignore_ascii_case("cookie:") => segment[7..].trim(),
+            _ => segment,
+        };
+        let Some((key, value)) = segment.split_once('=') else {
+            continue;
+        };
+        if !key.trim().eq_ignore_ascii_case(name) {
+            continue;
+        }
+        let value = value.trim().trim_matches('"').trim();
+        if !value.is_empty() {
+            return Some(value.to_string());
+        }
+    }
+    None
+}
+
+/// 从一段文本里取一对 `(access_token, refresh_token)`（整段 Cookie / 单条
+/// `name=value` / 裸令牌都认）。
+///
+/// 裸令牌（不含 `=`，即没有 cookie 名）当 access_token —— JWT 是 base64url，
+/// 本身不带 `=`，所以这条判据不会把 `chatglm_token=…` 误当成裸令牌。
+pub fn parse_tokens(text: &str) -> (String, String) {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return (String::new(), String::new());
+    }
+    let access = cookie_value(trimmed, COOKIE_ACCESS_TOKEN).unwrap_or_default();
+    let refresh = cookie_value(trimmed, COOKIE_REFRESH_TOKEN).unwrap_or_default();
+    if !access.is_empty() || !refresh.is_empty() {
+        return (access, refresh);
+    }
+    if !trimmed.contains('=') {
+        return (trimmed.to_string(), String::new());
+    }
+    (String::new(), String::new())
+}
 
 /// 一份智谱清言凭证快照（转发 / 余额 / 签到共用）
 #[derive(Clone, Debug)]

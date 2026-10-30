@@ -159,9 +159,9 @@ pub(super) async fn normalize(input: proto::NormalizeInput) -> Result<proto::Nor
             Err(reason) => return Err(GatewayError::with_status(400, reason)),
         },
         proto::NormalizeSource::FileText { content, .. } => {
-            // 文件导入：内容就是用户粘的那段（可能是一整份 JSON，也可能是一串令牌）
-            let token = token_from_text(content)?;
-            (token, String::new(), "manual")
+            // 文件导入：内容就是用户粘的那段（整份 JSON / 整段 Cookie / 裸令牌）
+            let (access, refresh) = tokens_from_text(content)?;
+            (access, refresh, "manual")
         }
         proto::NormalizeSource::FileBase64 { .. } => {
             return Err(GatewayError::with_status(
@@ -170,15 +170,32 @@ pub(super) async fn normalize(input: proto::NormalizeInput) -> Result<proto::Nor
             ))
         }
         proto::NormalizeSource::Manual { payload } => {
-            let plain_token = crate::store::pick(
+            // 用户可能粘：整段 Cookie / 单条 `chatglm_token=…` / 裸 access_token。
+            // 整段 Cookie 是**唯一能保活**的形态 —— 它同时带回 refresh_token
+            //（见 `credentials::parse_tokens` 的说明）。
+            let pasted = crate::store::pick(
                 payload,
-                &["accessToken", "access_token", "token", "refreshToken"],
+                &[
+                    "accessToken",
+                    "access_token",
+                    "token",
+                    "cookie",
+                    "cookies",
+                    "cookieHeader",
+                ],
             );
+            let (access, cookie_refresh) = credentials::parse_tokens(&pasted);
+            let field_refresh = crate::store::pick(payload, &["refreshToken", "refresh_token"]);
+            let refresh = if field_refresh.is_empty() {
+                cookie_refresh
+            } else {
+                field_refresh
+            };
             let want_guest = payload
                 .get("guest")
                 .and_then(Value::as_bool)
-                .unwrap_or(plain_token.is_empty());
-            if want_guest && plain_token.is_empty() {
+                .unwrap_or(access.is_empty() && refresh.is_empty());
+            if want_guest && access.is_empty() && refresh.is_empty() {
                 // 访客换证：不需要任何前置登录，只依赖设备号
                 match http::guest_access(&device_id, None).await {
                     Ok((access, refresh, _uid)) => (access, refresh, "guest"),
@@ -187,26 +204,27 @@ pub(super) async fn normalize(input: proto::NormalizeInput) -> Result<proto::Nor
                     }
                 }
             } else {
-                if plain_token.is_empty() {
-                    return Err(GatewayError::with_status(
-                        400,
-                        "请提供智谱清言的访问令牌（accessToken）",
-                    ));
-                }
-                // 用户可能整段粘了 `chatglm_token=xxx;` 形态
-                let token = plain_token
-                    .trim()
-                    .trim_start_matches("chatglm_token=")
-                    .trim_end_matches(';')
-                    .trim()
-                    .to_string();
-                (token, String::new(), "manual")
+                (access, refresh, "manual")
             }
         }
     };
 
+    // 只有 refresh_token（只粘了 refresh 那一半 / cookie 里没有 access）：
+    // 先用它换一个 access，省掉一次必然 401 的校验。
+    let (access, refresh) = if access.is_empty() && !refresh.is_empty() {
+        http::refresh_token(&refresh, &device_id, None)
+            .await
+            .map(|(access, rotated, _uid)| (access, rotated))
+            .map_err(|error| GatewayError::with_status(error.status_code, error.message))?
+    } else {
+        (access, refresh)
+    };
+
     if access.is_empty() {
-        return Err(GatewayError::with_status(400, "没有取到智谱清言的访问令牌"));
+        return Err(GatewayError::with_status(
+            400,
+            "没有取到智谱清言的访问令牌（请粘贴整段 Cookie 或 chatglm_token）",
+        ));
     }
 
     // 真实校验：拿令牌问一次 user/info。顺带读回 uid / 昵称 / 访客标记
@@ -265,26 +283,51 @@ pub(super) async fn normalize(input: proto::NormalizeInput) -> Result<proto::Nor
     })
 }
 
-/// 从一段文本里取出令牌（文件导入用）：先试 JSON，再当裸令牌。
-fn token_from_text(content: &str) -> Result<String, GatewayError> {
+/// 从一段文本里取出 `(access, refresh)`（文件导入用）。
+///
+/// 先试 JSON（`accessToken` / `token` / `cookie` …；显式的 `refreshToken`
+/// 字段优先），再按 Cookie 串解析 —— 与手填入口共用 `credentials::parse_tokens`，
+/// 两个入口认的形态不会分叉。
+fn tokens_from_text(content: &str) -> Result<(String, String), GatewayError> {
     let trimmed = content.trim();
     if trimmed.is_empty() {
         return Err(GatewayError::with_status(400, "凭证文件是空的"));
     }
     if let Ok(parsed) = serde_json::from_str::<Value>(trimmed) {
-        let token = crate::store::pick(&parsed, &["accessToken", "access_token", "token"]);
-        if !token.is_empty() {
-            return Ok(token);
+        let pasted = crate::store::pick(
+            &parsed,
+            &[
+                "accessToken",
+                "access_token",
+                "token",
+                "cookie",
+                "cookies",
+                "cookieHeader",
+            ],
+        );
+        let field_refresh = crate::store::pick(&parsed, &["refreshToken", "refresh_token"]);
+        let (access, cookie_refresh) = credentials::parse_tokens(&pasted);
+        if access.is_empty() && cookie_refresh.is_empty() && field_refresh.is_empty() {
+            return Err(GatewayError::with_status(
+                400,
+                "凭证文件里没有 accessToken / token / chatglm_token 字段",
+            ));
         }
+        // 显式字段比 cookie 串里解出来的同名值更可信
+        let refresh = if field_refresh.is_empty() {
+            cookie_refresh
+        } else {
+            field_refresh
+        };
+        return Ok((access, refresh));
+    }
+    let (access, refresh) = credentials::parse_tokens(trimmed);
+    if access.is_empty() && refresh.is_empty() {
         return Err(GatewayError::with_status(
             400,
-            "凭证文件里没有 accessToken / token 字段",
+            "凭证文件里没有可用的智谱清言令牌（请提供整段 Cookie 或 access_token）",
         ));
     }
-    Ok(trimmed
-        .trim_start_matches("chatglm_token=")
-        .trim_end_matches(';')
-        .trim()
-        .to_string())
+    Ok((access, refresh))
 }
 
