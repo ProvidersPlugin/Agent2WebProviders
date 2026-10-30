@@ -26,8 +26,11 @@
 //!                  不需要登录 —— 本家「零配置就能用」的入口。
 //!                  但访客**没有积分体系**：余额 / 签到 / 领取类接口一律
 //!                  401（`user needs login`），因此那些能力对它如实跳过。
-//!   登录账号       手机验证码 / 授权码 / 粘贴 access_token 得到，
+//!   登录账号       手机验证码 / 授权码 / 粘贴整段 Cookie（或 access_token）得到，
 //!                  有积分 → 余额查询、每日登录积分、活动领取全部可用。
+//!                  ⚠️ 只粘 access_token 时记录里没有 refresh_token，访问令牌
+//!                  （实测 24 小时）过期后无法续期 —— 所以登录入口推荐整段
+//!                  Cookie（`chatglm_token` + `chatglm_refresh_token`）。
 //! ```
 //!
 //! ── 设备号是身份的一部分（不要当成可丢弃的装饰）──────────────────
@@ -105,8 +108,10 @@ impl Provider for ChatglmProvider {
             })
             .with_login(vec![
                 proto::LoginMethod::Token {
-                    label: "访问令牌".into(),
-                    placeholder: "粘贴 chatglm.cn 的 chatglm_token（或整段 Cookie）".into(),
+                    label: "访问令牌 / Cookie".into(),
+                    // 整段 Cookie 是推荐形态：只有 access_token 时账号一天后必失效
+                    //（没有 refresh_token 就无法续期，见 issue #1）
+                    placeholder: "粘贴整段 Cookie（含 chatglm_token 与 chatglm_refresh_token，可长期保活）或单个 chatglm_token".into(),
                     extra_fields: vec![proto::LoginField {
                         key: "deviceId".into(),
                         label: "设备号".into(),
