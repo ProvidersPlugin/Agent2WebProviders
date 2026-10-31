@@ -1,9 +1,12 @@
-//! DeepSeek 网页登录账号，使用正常会话创建与工作量证明；遇到人机验证要求重新登录。
-//! 网页与收费 API 账号凭证不是同一用途，不把 API 模型能力当作网页能力。
-//! 依据 kittors/deepseek-web-api (MIT, 2026-10-24) 的请求与 SSE patch 字段。
-//! 尚未发现网页模型目录、独立余额、签到、领取或 refresh 接口：参考客户端只使用
-//! default/expert 两个网页模式，不伪称在线模型刷新或自动续期。
+//! DeepSeek 网页账号使用官方会话与文件上传协议，遇到人机验证需手动登录。
+//! 当前网页模型由 /api/v0/client/settings 的 model_configs 确认，只广告默认可用入口。
+//! 图片先上传并等待 SUCCESS，再通过 ref_file_ids 交给模型；不使用 OCR 替代视觉。
+//! 网页 completion 没有原生 tools 契约，不能把提示词模拟标成工具调用支持。
+//! 未确认凭证续期、独立余额、签到或领取接口，不声明这些能力。
 
+mod images;
+mod login;
+mod models;
 mod pow;
 mod prompt;
 mod stream;
@@ -26,61 +29,100 @@ pub fn id(prefix: &str) -> String {
     format!("{prefix}-{}", bytes.iter().map(|byte| format!("{byte:02x}")).collect::<String>())
 }
 
-fn models() -> Vec<Value> {
-    ["deepseek-web-flash", "deepseek-web-pro"].into_iter().map(|id| json!({ "id": id, "name": id,
-        "supportsImages": false, "supportsToolCall": true, "supportsReasoning": true,
-        "toolCallMode": "emulated", "synthetic": true })).collect()
+fn bad_input(message: &str) -> String {
+    control_error(400, message, None, None)
 }
 
-fn client(proxy: Option<&proto::WireProxy>, gateway: &str) -> Result<reqwest::Client, String> {
+fn client_builder(proxy: Option<&proto::WireProxy>, gateway: &str) -> Result<reqwest::ClientBuilder, String> {
     let mut builder = reqwest::Client::builder().no_proxy().redirect(reqwest::redirect::Policy::none()).connect_timeout(Duration::from_secs(15));
     let url = proxy.map(proto::WireProxy::to_url).unwrap_or_else(|| gateway.to_string());
     if !url.trim().is_empty() && url != "direct" { builder = builder.proxy(reqwest::Proxy::all(&url).map_err(|_| "DeepSeek 出网代理无效")?); }
-    builder.build().map_err(|error| format!("DeepSeek 网络客户端创建失败：{error}"))
+    Ok(builder)
+}
+
+fn client(proxy: Option<&proto::WireProxy>, gateway: &str) -> Result<reqwest::Client, String> {
+    client_builder(proxy, gateway)?.build().map_err(|_| "DeepSeek 网络客户端创建失败".into())
+}
+
+fn record_client(record: &agent2api_provider_sdk::StoreAccount, gateway: &str) -> Result<reqwest::Client, String> {
+    use agent2api_provider_sdk::StoreProxy;
+    match &record.proxy {
+        Some(StoreProxy::Resolved { proxy }) => client(Some(proxy), gateway),
+        Some(StoreProxy::Static { config }) if config["source"] == "direct" => client(None, "direct"),
+        Some(StoreProxy::Static { config }) => {
+            let proxy: proto::WireProxy = serde_json::from_value(config.clone()).map_err(|_| "DeepSeek 账号代理格式无效")?;
+            client(Some(&proxy), gateway)
+        }
+        Some(StoreProxy::Failed { .. }) => Err("DeepSeek 账号代理不可用，请重新选择".into()),
+        Some(StoreProxy::Unset) | None => client(None, gateway),
+    }
 }
 
 fn headers(token: &str, cookie: &str) -> Vec<(String, String)> {
     let mut headers = vec![("Authorization".into(), format!("Bearer {token}")), ("Content-Type".into(), "application/json".into()),
         ("Accept".into(), "application/json".into()), ("Origin".into(), BASE.into()), ("Referer".into(), format!("{BASE}/")),
-        ("x-client-platform".into(), "web".into()), ("x-client-version".into(), "2.2.0".into()), ("x-client-locale".into(), "zh_CN".into()),
+        ("x-client-platform".into(), "web".into()), ("x-client-version".into(), "2.7.0".into()), ("x-client-locale".into(), "zh_CN".into()),
         ("x-client-bundle-id".into(), "com.deepseek.chat".into())];
     if !cookie.is_empty() { headers.push(("Cookie".into(), cookie.into())); }
     headers
 }
 
-async fn post(client: &reqwest::Client, path: &str, headers: &[(String, String)], body: Value) -> Result<Value, String> {
-    let mut request = client.post(format!("{BASE}{path}")).json(&body).timeout(Duration::from_secs(30));
-    for (name, value) in headers { request = request.header(name, value); }
-    let response = request.send().await.map_err(|error| format!("DeepSeek 请求失败：{error}"))?;
+async fn control_response(response: reqwest::Response) -> Result<Value, String> {
     let status = response.status().as_u16();
-    let bytes = response.bytes().await.map_err(|_| "DeepSeek 响应读取失败")?;
-    if bytes.len() > 1024 * 1024 { return Err("DeepSeek 控制响应过大".into()); }
+    let mut bytes = Vec::new();
+    let mut source = response.bytes_stream();
+    while let Some(chunk) = source.next().await {
+        let chunk = chunk.map_err(|_| "DeepSeek 响应读取失败")?;
+        if bytes.len().saturating_add(chunk.len()) > 1024 * 1024 { return Err("DeepSeek 控制响应过大".into()); }
+        bytes.extend_from_slice(&chunk);
+    }
     let value: Value = serde_json::from_slice(&bytes).map_err(|_| control_error(403, "DeepSeek 网页要求人机验证，请在官方网页手动登录后更新 Cookie", None, None))?;
     if !(200..300).contains(&status) || value["code"].as_i64().is_some_and(|code| code != 0) || value.pointer("/data/biz_code").and_then(Value::as_i64).is_some_and(|code| code != 0) {
-        let message = value.get("msg").or_else(|| value.pointer("/data/biz_msg")).and_then(Value::as_str).unwrap_or("DeepSeek 网页请求失败");
+        let message = [value.get("msg"), value.pointer("/data/biz_msg")].into_iter().flatten()
+            .filter_map(Value::as_str).find(|message| !message.is_empty()).unwrap_or("DeepSeek 网页请求失败");
         return Err(control_error(if status >= 400 { i32::from(status) } else { 400 }, message, None, None));
     }
     Ok(value)
 }
 
+async fn post(client: &reqwest::Client, path: &str, headers: &[(String, String)], body: Value) -> Result<Value, String> {
+    let mut request = client.post(format!("{BASE}{path}")).json(&body).timeout(Duration::from_secs(30));
+    for (name, value) in headers { request = request.header(name, value); }
+    control_response(request.send().await.map_err(|_| "DeepSeek 请求失败")?).await
+}
+
+async fn get(client: &reqwest::Client, path: &str, headers: &[(String, String)], query: &[(&str, &str)]) -> Result<Value, String> {
+    let mut request = client.get(format!("{BASE}{path}")).query(query).timeout(Duration::from_secs(30));
+    for (name, value) in headers { request = request.header(name, value); }
+    control_response(request.send().await.map_err(|_| "DeepSeek 请求失败")?).await
+}
+
+async fn proof(client: &reqwest::Client, headers: &[(String, String)], path: &str) -> Result<String, String> {
+    let challenge = post(client, "/api/v0/chat/create_pow_challenge", headers, json!({ "target_path": path })).await?;
+    let challenge = challenge.pointer("/data/biz_data/challenge").cloned().ok_or("DeepSeek 没有返回验证 challenge")?;
+    let path = path.to_string();
+    tokio::task::spawn_blocking(move || pow::solve_for(&challenge, &path)).await.map_err(|_| "DeepSeek 验证任务失败")?
+}
+
 async fn prepare_and_forward(ctx: &PluginCtx, req: proto::ConversationRequest, sink: &mut ConversationSink<'_>, head_sent: &mut bool) -> Result<(), String> {
+    let prompt = prompt::build(&req.body)?;
     let record = ctx.store_get(ID, &req.account).await.map_err(|_| "DeepSeek 网页账号不存在")?;
     let token = record.secret["accessToken"].as_str().filter(|token| !token.is_empty()).ok_or("DeepSeek 网页账号缺少访问令牌")?;
     let cookie = record.secret["cookie"].as_str().unwrap_or("");
     let headers = headers(token, cookie);
     let client = client(req.proxy.as_ref(), &ctx.env.proxy)?;
     let model = if req.wire_model.is_empty() { req.body["model"].as_str().unwrap_or("") } else { &req.wire_model };
-    let model_type = match model { "deepseek-web-flash" => "default", "deepseek-web-pro" => "expert", _ => return Err("DeepSeek 网页请选择 deepseek-web-flash 或 deepseek-web-pro".into()) };
-    let prompt = prompt::build(&req.body)?;
+    if !models::accepts(model) { return Err(bad_input("DeepSeek 网页请选择 deepseek-web-flash")); }
+    let catalog = models::load(&record.id, &client, &headers, false).await?;
+    if !prompt.images.is_empty() && !catalog.images { return Err(bad_input("DeepSeek 当前网页模型没有图片输入能力")); }
+    let thinking = prompt::thinking(&req.body);
+    let file_ids = images::upload(&prompt.images, &client, &headers, &catalog.mode, thinking, req.proxy.as_ref(), &ctx.env.proxy).await?;
     let created = post(&client, "/api/v0/chat_session/create", &headers, json!({})).await?;
     let session = created.pointer("/data/biz_data/id").or_else(|| created.pointer("/data/biz_data/chat_session/id")).and_then(Value::as_str).ok_or("DeepSeek 没有返回会话 id")?;
-    let challenge = post(&client, "/api/v0/chat/create_pow_challenge", &headers, json!({ "target_path": "/api/v0/chat/completion" })).await?;
-    let challenge = challenge.pointer("/data/biz_data/challenge").cloned().ok_or("DeepSeek 没有返回验证 challenge")?;
-    let proof = tokio::task::spawn_blocking(move || pow::solve(&challenge)).await.map_err(|_| "DeepSeek 验证任务失败")??;
-    let thinking = !matches!(req.body["reasoning_effort"].as_str(), Some("none" | "off"));
+    let proof = proof(&client, &headers, "/api/v0/chat/completion").await?;
     let mut request = client.post(format!("{BASE}/api/v0/chat/completion")).json(&json!({
-        "chat_session_id": session, "parent_message_id": null, "model_type": model_type, "prompt": prompt,
-        "ref_file_ids": [], "thinking_enabled": thinking, "search_enabled": false, "action": null, "preempt": false,
+        "chat_session_id": session, "parent_message_id": null, "model_type": catalog.mode, "prompt": prompt.text,
+        "ref_file_ids": file_ids, "thinking_enabled": thinking, "search_enabled": false, "action": null, "preempt": false,
     })).header("x-ds-pow-response", proof).timeout(Duration::from_secs(600));
     for (name, value) in &headers { request = request.header(name, value); }
     let response = request.header("Accept", "text/event-stream").send().await.map_err(|error| format!("DeepSeek 对话发送失败：{error}"))?;
@@ -89,8 +131,7 @@ async fn prepare_and_forward(ctx: &PluginCtx, req: proto::ConversationRequest, s
         return Err(control_error(403, "DeepSeek 网页要求重新登录或人机验证", None, None));
     }
     let response_id = id("chatcmpl");
-    let tool_mode = req.body.get("tools").and_then(Value::as_array).is_some_and(|tools| !tools.is_empty());
-    let streaming = req.stream && !tool_mode;
+    let streaming = req.stream;
     let mut decoder = stream::Decoder::default();
     let mut utf8 = Vec::new();
     let mut source = response.bytes_stream();
@@ -119,8 +160,7 @@ async fn prepare_and_forward(ctx: &PluginCtx, req: proto::ConversationRequest, s
         if decoder.total_tokens > 0 { sink.send(format!("data: {}\n\n", json!({ "id": response_id, "object": "chat.completion.chunk", "model": model, "choices": [], "usage": { "total_tokens": decoder.total_tokens } })).as_bytes()).await?; }
         sink.send(b"data: [DONE]\n\n").await?;
     } else {
-        let calls = prompt::parse_calls(&decoder.content, &req.body)?;
-        let body = stream::completion(&response_id, model, &decoder, calls);
+        let body = stream::completion(&response_id, model, &decoder);
         send_result_stream(sink, &body).await?;
     }
     Ok(())
@@ -144,9 +184,13 @@ async fn send_delta(sink: &mut ConversationSink<'_>, id: &str, model: &str, delt
 
 impl Provider for DeepseekWebProvider {
     fn meta(&self) -> ProviderMeta {
-        ProviderMeta::new(ID, "DeepSeek 网页").with_capabilities(proto::Capabilities { chat: true, stateful: true, ..Default::default() })
-            .with_models(models()).with_login(vec![proto::LoginMethod::Token { label: "网页访问令牌".into(), placeholder: "chat.deepseek.com 的 userToken.value，不是收费 API Key".into(),
-                extra_fields: vec![proto::LoginField { key: "cookie".into(), label: "网页 Cookie".into(), placeholder: "官方网页正常登录后的 Cookie；风控时请手动更新".into(), optional: true, multiline: true }] }])
+        ProviderMeta::new(ID, "DeepSeek 网页").with_capabilities(proto::Capabilities {
+            chat: true, stateful: true, web_login: true, model_refresh: true, ..Default::default()
+        }).with_models(models::fallback()).with_login(vec![
+                proto::LoginMethod::Browser { button: "网页登录".into(), hint: Some("在桌面独立窗口中登录 DeepSeek 官网，自动读取登录态并添加账号；浏览器面板请粘贴令牌。".into()) },
+                proto::LoginMethod::Token { label: "网页访问令牌".into(), placeholder: "chat.deepseek.com 的 userToken.value，不是收费 API Key".into(),
+                    extra_fields: vec![proto::LoginField { key: "cookie".into(), label: "网页 Cookie".into(), placeholder: "官方网页正常登录后的 Cookie；风控时请手动更新".into(), optional: true, multiline: true }] },
+            ])
             .with_account_features(proto::AccountFeatures { identifier: vec!["uid".into()], ..Default::default() })
     }
     fn conversation<'a>(&'a self, ctx: &'a PluginCtx, req: proto::ConversationRequest, sink: ConversationSink<'a>) -> SendFuture<'a, ()> {
@@ -171,21 +215,82 @@ impl Provider for DeepseekWebProvider {
     fn ensure_token<'a>(&'a self, ctx: &'a PluginCtx, account: &'a str) -> SendFuture<'a, String> {
         Box::pin(async move { ctx.store_get(ID, account).await.map_err(|error| error.to_string())?.secret["accessToken"].as_str().map(str::to_string).ok_or_else(|| "DeepSeek 网页缺少令牌".into()) })
     }
-    fn models<'a>(&'a self, _ctx: &'a PluginCtx, _account: &'a str) -> SendFuture<'a, proto::ModelList> {
-        Box::pin(async { Ok(proto::ModelList { models: models(), meta: Default::default() }) })
+    fn models<'a>(&'a self, ctx: &'a PluginCtx, account: &'a str) -> SendFuture<'a, proto::ModelList> {
+        Box::pin(async move {
+            let record = ctx.store_get(ID, account).await.map_err(|_| "DeepSeek 网页账号不存在")?;
+            let token = record.secret["accessToken"].as_str().filter(|token| !token.is_empty()).ok_or("DeepSeek 网页账号缺少访问令牌")?;
+            let client = record_client(&record, &ctx.env.proxy)?;
+            let headers = headers(token, record.secret["cookie"].as_str().unwrap_or(""));
+            Ok(models::load(&record.id, &client, &headers, false).await?.list)
+        })
+    }
+    fn refresh_models<'a>(&'a self, ctx: &'a PluginCtx, account: &'a str, force: bool) -> SendFuture<'a, proto::RefreshOutcome> {
+        Box::pin(async move {
+            let record = ctx.store_get(ID, account).await.map_err(|_| "DeepSeek 网页账号不存在")?;
+            let token = record.secret["accessToken"].as_str().filter(|token| !token.is_empty()).ok_or("DeepSeek 网页账号缺少访问令牌")?;
+            let client = record_client(&record, &ctx.env.proxy)?;
+            let headers = headers(token, record.secret["cookie"].as_str().unwrap_or(""));
+            match models::load(&record.id, &client, &headers, force).await {
+                Ok(catalog) => Ok(proto::RefreshOutcome::refreshed(catalog.list.models.len())),
+                Err(error) => Ok(proto::RefreshOutcome::failed(error)),
+            }
+        })
     }
     fn classify(&self, status: u16, body: &Value) -> proto::ErrorClass {
         let message = body["message"].as_str().unwrap_or("DeepSeek 网页请求失败").to_string();
         match status { 401 => proto::ErrorClass::TokenExpired { message }, 429 => proto::ErrorClass::QuotaLimited { reset_at: None, message, upstream_code: None, status },
             _ => proto::ErrorClass::Fatal { status, message, upstream_code: None } }
     }
+    fn admin_action<'a>(&'a self, _ctx: &'a PluginCtx, _account: &'a str, action: &'a str, _payload: &'a Value) -> SendFuture<'a, Value> {
+        Box::pin(async move {
+            if action != "auth.methods" {
+                return Err(control_error(501, format!("DeepSeek 网页没有实现管理动作「{action}」"), None, None));
+            }
+            Ok(json!({ "methods": [{
+                "methodIndex": 1, "type": "oauth", "label": "网页登录", "localOnly": true,
+                "instructions": "在桌面独立窗口中登录 DeepSeek 官网，自动读取登录态并添加账号；浏览器面板请粘贴令牌。",
+                "prompts": [{ "key": "name", "type": "text", "label": "备注名", "placeholder": "可选，留空使用账号默认名称", "optional": true }]
+            }, {
+                "methodIndex": 0, "type": "api", "label": "粘贴网页访问令牌",
+                "instructions": "在 chat.deepseek.com 登录本人账号后，从浏览器开发者工具的 Application → Local Storage 复制 userToken 的 value。Cookie 可选，需补充时粘贴该站点请求里的完整 Cookie；登录态失效或要求人机验证时，请回官方网页手动登录后更新。这里不接受收费 API Key。",
+                "prompts": [
+                    { "key": "accessToken", "type": "text", "label": "网页访问令牌", "placeholder": "chat.deepseek.com 的 userToken.value，不是收费 API Key", "secret": true },
+                    { "key": "cookie", "type": "text", "label": "网页 Cookie", "placeholder": "官方网页正常登录后的 Cookie；风控时请手动更新", "optional": true, "secret": true }
+                ]
+            }] }))
+        })
+    }
+    fn login_start<'a>(&'a self, _ctx: &'a PluginCtx, _method: &'a str, payload: &'a Value) -> SendFuture<'a, proto::LoginStart> {
+        Box::pin(async move { login::start(payload) })
+    }
+    fn login_callback<'a>(&'a self, ctx: &'a PluginCtx, callback: proto::LoginCallback) -> SendFuture<'a, proto::LoginPoll> {
+        Box::pin(async move { login::callback(ctx, callback).await })
+    }
+    fn login_poll<'a>(&'a self, _ctx: &'a PluginCtx, flow: &'a str) -> SendFuture<'a, proto::LoginPoll> {
+        Box::pin(async move { login::poll(flow) })
+    }
+    fn login_cancel<'a>(&'a self, _ctx: &'a PluginCtx, flow: &'a str) -> SendFuture<'a, ()> {
+        Box::pin(async move { login::cancel(flow); Ok(()) })
+    }
     fn normalize_account<'a>(&'a self, ctx: &'a PluginCtx, input: proto::NormalizeInput) -> SendFuture<'a, proto::NormalizedAccount> {
         Box::pin(async move {
-            let payload = match input.source { proto::NormalizeSource::Manual { payload } => payload, proto::NormalizeSource::FileText { content, .. } => serde_json::from_str(&content).unwrap_or_else(|_| json!({ "token": content })), _ => return Err("DeepSeek 网页请粘贴本人登录令牌与 Cookie".into()) };
+            let payload = match input.source {
+                proto::NormalizeSource::Manual { payload } if payload.get("methodIndex").is_some() => {
+                    if payload["methodIndex"].as_u64() != Some(0) { return Err("DeepSeek 网页登录方式索引无效".into()); }
+                    let fields = payload["inputs"].as_object().ok_or("DeepSeek 网页登录 inputs 必须是字符串字段对象")?;
+                    if fields.iter().any(|(key, value)| !matches!(key.as_str(), "accessToken" | "cookie") || !value.is_string()) {
+                        return Err("DeepSeek 网页登录 inputs 包含未申报的字段或非字符串值".into());
+                    }
+                    Value::Object(fields.clone())
+                },
+                proto::NormalizeSource::Manual { payload } => payload,
+                proto::NormalizeSource::FileText { content, .. } => serde_json::from_str(&content).unwrap_or_else(|_| json!({ "token": content })),
+                _ => return Err("DeepSeek 网页请粘贴本人登录令牌与 Cookie".into()),
+            };
             let token = ["accessToken", "token", "apiKey"].into_iter().find_map(|key| payload[key].as_str()).unwrap_or("").trim().trim_start_matches("Bearer ").to_string();
             let cookie = payload["cookie"].as_str().unwrap_or("").trim().to_string();
             if token.is_empty() || token.len() > 16384 || token.starts_with("sk-") || cookie.len() > 32768 || token.contains(['\r', '\n']) || cookie.contains(['\r', '\n']) { return Err("请填写有效的 DeepSeek 网页访问令牌，不是收费 API Key".into()); }
-            let client = client(None, &ctx.env.proxy)?;
+            let client = client(input.proxy.as_ref(), &ctx.env.proxy)?;
             let headers = headers(&token, &cookie);
             let response = post(&client, "/api/v0/chat/create_pow_challenge", &headers, json!({ "target_path": "/api/v0/chat/completion" })).await?;
             if response.pointer("/data/biz_data/challenge").is_none() { return Err("DeepSeek 登录态校验失败：未返回验证 challenge".into()); }

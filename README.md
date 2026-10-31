@@ -16,7 +16,7 @@ The table describes the current implementation. It does not imply that every cap
 | Provider | LLM requests | Token auto-refresh | Model list | Balance query | Check-in | Claims |
 | --- | :--: | :--: | :--: | :--: | :--: | :--: |
 | Zhipu Qingyan | ✓ | ✓ | Online + fallback | Signed-in accounts | Signed-in accounts | Signed-in accounts |
-| DeepSeek Web | Implemented; unverified | Undeclared | Static only | Undeclared | Undeclared | Undeclared |
+| DeepSeek Web | Text + image input; no tool calls | Undeclared | Online configuration + fallback | Undeclared | Undeclared | Undeclared |
 
 “Undeclared” means the capability has not been confirmed or integrated; it does not establish that the upstream service lacks it.
 
@@ -32,12 +32,12 @@ The table describes the current implementation. It does not imply that every cap
 ### DeepSeek Web
 
 - Accepts your own `chat.deepseek.com` `userToken.value`, with a Cookie when needed.
-- Exposes `deepseek-web-flash` and `deepseek-web-pro` as static mappings to the web modes `default` and `expert`.
-- Implements streamed text and reasoning, with prompt-based tool-call emulation and full-history feedback.
-- Tool-call emulation is not native function calling. Incomplete responses are rejected before tool calls are returned.
-- Image upload, generation and editing are not integrated.
+- Lists one model, `deepseek-web-flash` (display name: DeepSeek Web), using the current default mode from official account settings. Disabled Expert and Vision modes are not separate models.
+- Implements streamed text and reasoning, plus actual image uploads referenced through `ref_file_ids` after parsing succeeds.
+- Accepts PNG, JPEG, GIF and WebP as base64 data URLs or public HTTP(S) URLs. Local/private addresses and redirects are rejected; fetched images never receive account credentials.
+- Native tool calling is unavailable on the web endpoint. Prompt-based emulation has been removed; active `tools` and tool-history requests are rejected explicitly.
 - Paid API keys are not accepted. Human verification requires signing in manually on the official website.
-- Live calls are untested. Online catalogs, credential renewal, balances, check-in and claims remain undeclared.
+- Text, streaming, model settings and image shape/color/text recognition have been verified with a live account. Credential renewal, balances, check-in and claims remain undeclared.
 
 Tokens, cookies and account exports are sensitive credentials. Do not publish or share them.
 

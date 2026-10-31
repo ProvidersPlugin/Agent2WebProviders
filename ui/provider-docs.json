@@ -13,18 +13,18 @@
       "capabilities": {
         "chat": { "status": "supported" },
         "refresh": { "status": "undeclared" },
-        "model_refresh": { "status": "undeclared" },
+        "model_refresh": { "status": "supported" },
         "usage": { "status": "undeclared" },
         "checkin": { "status": "undeclared" },
         "claims": { "status": "undeclared" }
       },
       "notes": [{
-        "zh-CN": "使用本人 chat.deepseek.com 的 userToken 与 Cookie。提供 deepseek-web-flash / deepseek-web-pro 两个网页模式，流式正文、思考与提示词模拟工具调用；工具结果回灌保留完整对话。不是收费 API Key，网页验证失败需手动登录，不绕过人机验证。未实测联网调用；在线模型目录、续期、余额与签到尚未确认，不声明支持。",
-        "zh-Hant": "使用本人 chat.deepseek.com 的 userToken 與 Cookie。提供兩個網頁模式、串流正文與思考，以及提示詞模擬工具呼叫。並非付費 API Key；驗證失敗須手動登入。尚未實測連線呼叫；目錄、續期、餘額與簽到未確認。",
-        "en": "Uses your own chat.deepseek.com userToken and Cookie. Exposes Flash/Pro web modes, streamed text/reasoning and prompt-based tool emulation with full history. This is not a paid API key. Human verification requires manual sign-in. Live calls are untested; remote catalog, renewal, balance and check-in are unverified.",
-        "ja": "本人の Web userToken と Cookie を使用します。Flash/Pro、本文と思考のストリーム、プロンプトによるツール呼び出しに対応します。認証確認は手動ログインが必要です。実際の通信は未検証で、モデル一覧・更新・残高・チェックインは未確認です。",
-        "ko": "본인의 웹 userToken과 Cookie를 사용합니다. Flash/Pro 모드, 텍스트와 추론 스트림, 프롬프트 기반 도구 호출을 제공합니다. 사람 확인은 수동 로그인이 필요합니다. 실제 호출과 원격 모델 목록, 갱신, 잔액, 체크인은 검증하지 않았습니다.",
-        "pt-BR": "Usa seu userToken e Cookie do site. Oferece Flash/Pro, texto/raciocínio em streaming e emulação de ferramentas por prompt com histórico completo. A verificação humana exige login manual. Chamadas reais não foram testadas; catálogo, renovação, saldo e check-in não foram confirmados."
+        "zh-CN": "使用本人 chat.deepseek.com 的 userToken 与 Cookie。仅展示 deepseek-web-flash（DeepSeek 网页），从官方账号配置读取当前默认模式；不再将已关闭的专家模式列为独立模型。已实测文本、流式回复与图片形状、颜色及文字识别，支持 PNG、JPEG、GIF、WebP 的 base64 或公网 URL 输入。网页没有原生工具调用接口，不再通过提示词模拟工具调用，传入 tools 时明确报错。不是收费 API Key；人机验证需在官方网页手动完成，续期、余额、签到与领取仍未确认。",
+        "zh-Hant": "使用本人 chat.deepseek.com 的 userToken 與 Cookie。僅顯示 deepseek-web-flash（DeepSeek 網頁），從官方帳號設定讀取目前預設模式；不再將已關閉的專家模式列為獨立模型。已實測文字、串流回覆及圖片形狀、顏色與文字辨識，支援 PNG、JPEG、GIF、WebP 的 base64 或公開 URL 輸入。網頁沒有原生工具呼叫介面，不再以提示詞模擬工具呼叫，傳入 tools 時明確報錯。人機驗證需於官方網頁手動完成；續期、餘額、簽到與領取仍未確認。",
+        "en": "Uses your own chat.deepseek.com userToken and Cookie. Lists only deepseek-web-flash (DeepSeek Web), resolving the current default mode from official account settings rather than advertising the disabled Expert mode. Text, streaming and image shape, color and text recognition were verified with a live account. Accepts PNG, JPEG, GIF and WebP as base64 or public URLs. The web endpoint has no native tool-calling contract: prompt emulation is removed and tools requests fail explicitly. Human verification requires manual sign-in; renewal, balance, check-in and claims remain unverified.",
+        "ja": "本人の chat.deepseek.com userToken と Cookie を使用します。deepseek-web-flash（DeepSeek Web）のみを表示し、公式アカウント設定から現在の既定モードを取得します。無効な Expert モードを別モデルとして表示しません。テキスト、ストリーミング、画像の形状・色・文字認識を実アカウントで確認しました。PNG、JPEG、GIF、WebP の base64 または公開 URL 入力に対応します。Web エンドポイントにはネイティブのツール呼び出し契約がないため、プロンプトによる模擬呼び出しを削除し、tools リクエストは明示的に拒否します。認証確認は公式ページで手動実行が必要です。更新・残高・チェックイン・報酬は未確認です。",
+        "ko": "본인의 chat.deepseek.com userToken과 Cookie를 사용합니다. deepseek-web-flash(DeepSeek 웹)만 표시하고 공식 계정 설정에서 현재 기본 모드를 읽습니다. 비활성화된 Expert 모드는 별도 모델로 표시하지 않습니다. 실제 계정으로 텍스트, 스트리밍, 이미지의 모양·색상·문자 인식을 확인했습니다. PNG, JPEG, GIF, WebP의 base64 또는 공개 URL 입력을 지원합니다. 웹 엔드포인트에 네이티브 도구 호출 규약이 없어 프롬프트 기반 모의 호출을 제거하고 tools 요청을 명확히 거부합니다. 사람 확인은 공식 페이지에서 수동으로 완료해야 하며 갱신, 잔액, 체크인, 보상은 아직 확인되지 않았습니다.",
+        "pt-BR": "Usa seu userToken e Cookie de chat.deepseek.com. Exibe apenas deepseek-web-flash (DeepSeek Web), lendo o modo padrão atual das configurações oficiais da conta, sem anunciar o modo Expert desativado. Texto, streaming e reconhecimento de formas, cores e texto em imagens foram verificados com uma conta real. Aceita PNG, JPEG, GIF e WebP em base64 ou URLs públicas. O endpoint web não tem contrato nativo de ferramentas: a emulação por prompt foi removida e requisições com tools são rejeitadas explicitamente. A verificação humana exige login manual; renovação, saldo, check-in e recompensas continuam sem confirmação."
       }]
     },
     "chatglm": {

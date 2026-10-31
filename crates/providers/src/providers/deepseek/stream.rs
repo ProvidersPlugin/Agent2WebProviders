@@ -25,7 +25,7 @@ impl Decoder {
     pub fn finish(&mut self) -> Result<(), String> {
         let frame = std::mem::take(&mut self.buffer);
         if !frame.trim().is_empty() { self.frame(&frame)?; }
-        if !self.finished { return Err("DeepSeek 网页响应未正常结束，未执行可能截断的工具调用".into()); }
+        if !self.finished { return Err("DeepSeek 网页响应未正常结束".into()); }
         Ok(())
     }
 
@@ -73,12 +73,11 @@ impl Decoder {
     }
 }
 
-pub fn completion(id: &str, model: &str, decoder: &Decoder, calls: Option<Vec<Value>>) -> Value {
+pub fn completion(id: &str, model: &str, decoder: &Decoder) -> Value {
     let mut message = json!({ "role": "assistant", "content": decoder.content });
     if !decoder.reasoning.is_empty() { message["reasoning_content"] = json!(decoder.reasoning); }
-    let reason = if let Some(calls) = calls { message["content"] = Value::Null; message["tool_calls"] = json!(calls); "tool_calls" } else { "stop" };
     let mut body = json!({ "id": id, "object": "chat.completion", "created": crate::http::now_ms() / 1000, "model": model,
-        "choices": [{ "index": 0, "message": message, "finish_reason": reason }] });
+        "choices": [{ "index": 0, "message": message, "finish_reason": "stop" }] });
     if decoder.total_tokens > 0 { body["usage"] = json!({ "total_tokens": decoder.total_tokens }); }
     body
 }

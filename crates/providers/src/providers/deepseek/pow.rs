@@ -5,7 +5,10 @@ use serde_json::{json, Value};
 use base64::Engine;
 use std::time::{Duration, Instant};
 
-pub fn solve(challenge: &Value) -> Result<String, String> {
+pub fn solve_for(challenge: &Value, path: &str) -> Result<String, String> {
+    if !matches!(path, "/api/v0/chat/completion" | "/api/v0/file/upload_file") {
+        return Err("DeepSeek 验证目标路径无效".into());
+    }
     if challenge["algorithm"].as_str() != Some("DeepSeekHashV1") { return Err("DeepSeek 网页验证算法已变化，请更新插件".into()); }
     let target = challenge["challenge"].as_str().ok_or("DeepSeek 验证缺少 challenge")?;
     let mut expected = [0u8; 32];
@@ -20,7 +23,7 @@ pub fn solve(challenge: &Value) -> Result<String, String> {
         if answer % 1024 == 0 && started.elapsed() > Duration::from_secs(20) { return Err("DeepSeek 网页验证计算超时，未提交对话".into()); }
         if hash(format!("{prefix}{answer}").as_bytes()) == expected {
             let value = json!({ "algorithm": "DeepSeekHashV1", "challenge": target, "salt": salt, "answer": answer,
-                "signature": challenge.get("signature"), "target_path": "/api/v0/chat/completion" });
+                "signature": challenge.get("signature"), "target_path": path });
             return Ok(base64::engine::general_purpose::STANDARD.encode(value.to_string()));
         }
     }
