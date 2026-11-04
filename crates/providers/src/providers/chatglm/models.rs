@@ -40,9 +40,16 @@
 //! 目录其实早就拉到了（缓存里躺着），只是名字没人认得。
 //! 与 `StoredAccount` 那次「嵌套 auth 被静默过滤」同一类故障：**形状对不上比没有更隐蔽**。
 //!
-//! `reasoning_efforts` 同理归一成仓里认的 `reasoningEfforts`
-//! （`model_meta::fill` 的 `LEVEL_KEYS` 认它；上游那个下划线形态它不认，
-//! 思考等级规格因此一直是空的）。
+//! `reasoning_efforts` 同理归一成仓里认的 `reasoningEfforts`，并额外产出一份
+//! **字符串数组** `reasoningLevels`（`快速` / `深度` / `极致`）。
+//!
+//! ── 为什么必须另出 `reasoningLevels` ─────────────────────────
+//! 网关的 `model_meta::fill` 只把 `LEVEL_KEYS` 里的**字符串数组**当成档位表；
+//! 上游这份是对象数组，整条会被丢掉，于是模型管理页只能回落到通用 8 档
+//! （`off/none/minimal/...`）。用户在智谱上绑的不是它真有的档位，绑了也不生效。
+//! 所以这里按 `effort`（`""` / `thinking` / `deep_thinking`）翻成稳定显示名；
+//! `reasoningEfforts` 原样保留（`am_effort` / `display_name` 还在里面，DSH 等
+//! 按对象判能力的消费方不受影响）。
 //!
 //! ── 静态兜底 ────────────────────────────────────────────────
 //! 拉不到目录时用内置的已知模型名（离线也能点、转发也有名字可用）。
@@ -108,6 +115,8 @@ pub fn fallback_models() -> Vec<Value> {
                 "name": name,
                 "description": "",
                 "reasoningEfforts": default_efforts(),
+                "reasoningLevels": TIER_LABELS,
+                "reasoningDefaultLevel": TIER_LABELS[1],
             })
         })
         .collect()
@@ -120,6 +129,104 @@ fn default_efforts() -> Value {
         { "effort": "thinking", "am_effort": "high", "display_name": "深度" },
         { "effort": "deep_thinking", "am_effort": "max", "display_name": "极致" },
     ])
+}
+
+/// 三档的界面显示名（与上游 `reasoning_efforts[].display_name` 逐字一致）。
+///
+/// ── 为什么档位值用显示名而不是 `effort` ──────────────────────
+/// 模型管理页与模型测试弹窗都直接把档位值显示给用户看。用 `effort` 的值会
+/// 出现「快速」那一档是空串（网关的档位归一**会丢掉空串**，三档变两档），
+/// 而 `reasoning_effort` 的 `low` / `high` / `max` 又是强度档、不是开关名。
+/// 显示名（快速 / 深度 / 极致）与上游网页一致，也是用户能直接理解的档位；
+/// 请求侧 [`super::plan::tier_of`] 同时认显示名与所有机器值，绑定与转发不会
+/// 因为这里换了写法而失效。
+const TIER_LABELS: [&str; 3] = ["快速", "深度", "极致"];
+
+/// 按上游 `effort` 翻译成稳定的界面档位名（未知值原样保留）。
+fn effort_label(effort: &str, index: usize) -> String {
+    match effort.trim() {
+        "" => TIER_LABELS[0].to_string(),
+        "thinking" => TIER_LABELS[1].to_string(),
+        "deep_thinking" => TIER_LABELS[2].to_string(),
+        other if !other.is_empty() => other.to_string(),
+        _ => TIER_LABELS
+            .get(index)
+            .copied()
+            .unwrap_or(TIER_LABELS[1])
+            .to_string(),
+    }
+}
+
+/// 把 `reasoningEfforts`（上游的对象数组，或历史缓存的字符串数组）归一成
+/// **界面可选的档位字符串数组**。
+///
+/// 网关的 `model_meta` 只认字符串数组（`LEVEL_KEYS` 里的 `reasoningLevels`
+/// 优先于 `reasoningEfforts`）；对象数组会被整条丢弃，于是模型管理页只能
+/// 回落到通用 8 档 —— 用户看到的是 `off/none/minimal/...`，不是智谱真实的
+/// 三档，绑定出来的值也会是上游不认识的。这里产出 `reasoningLevels`，
+/// 同时**保留** `reasoningEfforts` 原形状（DSH 等消费方还按对象判能力）。
+fn levels_of_efforts(efforts: &Value) -> Vec<String> {
+    let mut levels: Vec<String> = Vec::new();
+    let Some(items) = efforts.as_array() else {
+        return TIER_LABELS.iter().map(|label| label.to_string()).collect();
+    };
+    for (index, item) in items.iter().enumerate() {
+        let label = match item {
+            Value::String(text) => text.trim().to_string(),
+            Value::Object(object) => {
+                // 先认稳定的 `effort`（""/thinking/deep_thinking），显示名只作兜底：
+                // 显示名可能随上游语言变化，档位值不能跟着变（见 TIER_LABELS 的说明）。
+                let effort = object.get("effort").and_then(Value::as_str).unwrap_or("");
+                let known = matches!(effort.trim(), "" | "thinking" | "deep_thinking");
+                if known {
+                    effort_label(effort, index)
+                } else {
+                    object
+                        .get("display_name")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_string)
+                        .unwrap_or_else(|| effort_label(effort, index))
+                }
+            }
+            _ => continue,
+        };
+        if !label.is_empty() && !levels.contains(&label) {
+            levels.push(label);
+        }
+    }
+    if levels.is_empty() {
+        TIER_LABELS.iter().map(|label| label.to_string()).collect()
+    } else {
+        levels
+    }
+}
+
+/// 默认档：优先「深度」，其次第二档，最后第一档（清单只有一档时也能给出默认）
+fn default_level_of(levels: &[String]) -> Option<String> {
+    levels
+        .iter()
+        .find(|level| level.as_str() == TIER_LABELS[1])
+        .cloned()
+        .or_else(|| levels.get(1).cloned())
+        .or_else(|| levels.first().cloned())
+}
+
+/// 把档位表挂到一条模型记录上（`reasoningLevels` + `reasoningDefaultLevel`）。
+///
+/// `reasoningEfforts` 原样留在记录里，不被替换：它是「上游声明了哪几档」的
+/// 事实来源（`am_effort` / `display_name` 都在里面），替换成字符串会丢掉
+/// 强度档与本地化名，也会让按对象判能力的消费方误判为「未声明」。
+fn attach_levels(record: &mut Value, efforts: &Value) {
+    let levels = levels_of_efforts(efforts);
+    let default = default_level_of(&levels);
+    if let Some(object) = record.as_object_mut() {
+        object.insert("reasoningLevels".to_string(), json!(levels));
+        if let Some(default) = default {
+            object.insert("reasoningDefaultLevel".to_string(), json!(default));
+        }
+    }
 }
 
 /// 从一条目录条目里取模型名：**先认仓内键 `id`，再兼容历史形状的
@@ -173,7 +280,16 @@ pub fn list() -> Vec<Value> {
 fn normalize_entry(entry: &Value) -> Value {
     // 新形状的标记：`id` 与 `reasoningEfforts` 都在 —— 那两个是首版都没有的键
     if entry.get("id").is_some() && entry.get("reasoningEfforts").is_some() {
-        return entry.clone();
+        let mut record = entry.clone();
+        // 旧缓存没有档位表：补一份，免得升级后要等下一次目录刷新才看得到三档
+        if record.get("reasoningLevels").is_none() {
+            let efforts = record
+                .get("reasoningEfforts")
+                .cloned()
+                .unwrap_or(Value::Null);
+            attach_levels(&mut record, &efforts);
+        }
+        return record;
     }
     let Some(id) = entry_model_name(entry) else {
         return entry.clone();
@@ -190,8 +306,9 @@ fn normalize_entry(entry: &Value) -> Value {
         "id": id,
         "name": name,
         "description": description,
-        "reasoningEfforts": efforts,
+        "reasoningEfforts": efforts.clone(),
     });
+    attach_levels(&mut record, &efforts);
     if let Some(object) = record.as_object_mut() {
         if let Some(tags) = entry.get("display_tag").filter(|value| value.is_array()) {
             object.insert("display_tag".to_string(), tags.clone());
@@ -267,8 +384,9 @@ fn map_entry(entry: &Value) -> Option<Value> {
         "id": id,
         "name": name,
         "description": description,
-        "reasoningEfforts": efforts,
+        "reasoningEfforts": efforts.clone(),
     });
+    attach_levels(&mut record, &efforts);
     if let Some(object) = record.as_object_mut() {
         // 标签（如 ["new"]）原样带上，界面可用来打角标
         if let Some(tags) = entry.get("display_tag").filter(|value| value.is_array()) {

@@ -199,6 +199,169 @@ fn read_messages(body: &Value) -> Vec<Value> {
     Vec::new()
 }
 
+/// 思考档位的长度上限（与网关 `model_rules::normalize` 同口径）
+const MAX_LEVEL_CHARS: usize = 32;
+
+/// 智谱清言的三个思考档位。
+///
+/// ── 三档只写 `meta_data.chat_mode`（2026-11 真机实测，别再加别的字段）──
+/// ```text
+///   档位            meta_data.chat_mode
+///   快速（不思考）    ""
+///   深度             "thinking"
+///   极致             "deep_thinking"
+/// ```
+/// 模型目录里 `reasoning_efforts[]` 的 `effort` 就是这三个值。
+///
+/// ── 为什么不把 `reasoning_effort` 也写进信封 ──────────────────
+/// 直接实测（同一账号、同一问题，`mainchat-api/engine/stream`）：
+/// ```text
+///   chat_mode="thinking"             → 思考（内部模型 moe_52）
+///   chat_mode="thinking" + effort="" → 思考
+///   chat_mode="thinking" + effort="high" → 思考
+///   chat_mode="thinking" + effort="low"  → 15,000+ 字的长篇思考（不再是「快速」）
+///   chat_mode="thinking" + effort="max"  → 不思考（回落 moe_5turbo）
+///   chat_mode="thinking" + effort="thinking" → 不思考（同上）
+///   chat_mode="deep_thinking"        → 思考
+///   chat_mode="deep_thinking" + effort="high" → 不思考（同上）
+///   chat_mode=""                     → 不思考
+/// ```
+/// `reasoning_effort` 在这个通道不是「强度档」，而是会把请求改路由到另一个
+/// 内部模型；只有「不传」在三个档位上都稳定。网页通道（`backend-api`）确实
+/// 同时带两个字段，但那是另一套信封 —— 本插件不走那条，不能照搬。
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum Tier {
+    Fast,
+    Thinking,
+    DeepThinking,
+}
+
+impl Tier {
+    /// 上游 `meta_data.chat_mode` 的取值（三档开关本体）
+    pub(super) fn chat_mode(self) -> &'static str {
+        match self {
+            Self::Fast => "",
+            Self::Thinking => "thinking",
+            Self::DeepThinking => "deep_thinking",
+        }
+    }
+
+    /// 客户端没指定时的默认档：**深度**。
+    ///
+    /// 网页版对思考模型默认落在中间档；不指定就落到「快速」会让用户看到
+    /// 「网页有思考、API 没有」（issue #452 的现象）。默认开思考、强度取中档
+    /// 是延迟与能力的折中；要关掉思考的客户端显式传 `off` / `none` / `low`
+    /// 即可（见 [`tier_of`]）。
+    pub(super) fn default_tier() -> Self {
+        Self::Thinking
+    }
+}
+
+/// 把一个思考等级归一成三档。
+///
+/// 认四类写法，覆盖链路里的所有来源：
+///   - 上游三档：`""` / `thinking` / `deep_thinking`；
+///   - 目录强度档：`low` / `high` / `max`（`am_effort`）；
+///   - 网关通用档：`minimal` … `max`（客户端与映射绑定都可能是这套）；
+///   - 界面显示名：`快速` / `深度` / `极致`（模型目录归一后的档位值）。
+///
+/// 表外值返回 None：调用方按「没指定」回退默认档，不把未知值塞给上游。
+pub(super) fn tier_of(level: &str) -> Option<Tier> {
+    let level = level.trim().to_lowercase();
+    match level.as_str() {
+        "" | "fast" | "off" | "none" | "minimal" | "low" | "快速" => Some(Tier::Fast),
+        "medium" | "high" | "thinking" | "深度" => Some(Tier::Thinking),
+        "xhigh" | "max" | "deep_thinking" | "deep" | "极致" => Some(Tier::DeepThinking),
+        _ => None,
+    }
+}
+
+/// 客户端显式指定的思考等级（取值链与网关 `read_client_level` 逐字一致）。
+///
+/// 多认了两个「开关形态」：`thinking: "disabled"` 与
+/// `thinking: {type:"disabled"}` → `off`；`thinking: {type:"enabled",
+/// budget_tokens}` → 按预算折一档（与网关 Anthropic 入口的换算同口径）。
+/// 直接走 chat 协议的客户端会这么发，Claude 协议那侧已由网关先折成
+/// `reasoning_effort`，两条路都能落到同一套三档。
+pub(super) fn client_level(body: &Value) -> Option<String> {
+    for key in ["reasoning_effort", "reasoningEffort", "effort", "reasoning", "thinking"] {
+        let Some(value) = body.get(key) else {
+            continue;
+        };
+        match value {
+            Value::String(text) => {
+                let text = text.trim();
+                if key == "thinking" {
+                    match text.to_lowercase().as_str() {
+                        "disabled" | "none" | "off" | "false" => return Some("off".to_string()),
+                        "enabled" | "adaptive" | "true" => return Some("high".to_string()),
+                        _ => {}
+                    }
+                }
+                if let Some(level) = normalize_level(text) {
+                    return Some(level);
+                }
+            }
+            // responses API 的对象形态：reasoning: { effort: "high" }
+            Value::Object(object) if key == "reasoning" => {
+                if let Some(Value::String(effort)) = object.get("effort") {
+                    if let Some(level) = normalize_level(effort) {
+                        return Some(level);
+                    }
+                }
+            }
+            // Anthropic 的 thinking 对象：开关 + 预算
+            Value::Object(object) if key == "thinking" => {
+                let kind = object
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .unwrap_or("")
+                    .to_lowercase();
+                match kind.as_str() {
+                    "disabled" | "none" | "off" => return Some("off".to_string()),
+                    "enabled" | "adaptive" => {
+                        let budget = object
+                            .get("budget_tokens")
+                            .and_then(Value::as_i64)
+                            .unwrap_or(0);
+                        return Some(budget_level(budget).to_string());
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// 归一化一个等级字符串：去空白 → 空串 / 超长返回 None（= 不指定）
+fn normalize_level(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed.chars().count() > MAX_LEVEL_CHARS {
+        return None;
+    }
+    Some(trimmed.to_string())
+}
+
+/// 思考预算 → 强度档（与网关 `protocol::anthropic::effort_from_budget` 同口径）
+fn budget_level(budget: i64) -> &'static str {
+    if budget <= 0 {
+        "medium"
+    } else if budget <= 1024 {
+        "low"
+    } else if budget <= 4096 {
+        "medium"
+    } else if budget <= 10240 {
+        "high"
+    } else if budget <= 32768 {
+        "xhigh"
+    } else {
+        "max"
+    }
+}
+
 /// 一次上游对话请求的构造结果
 pub struct ChatPlan {
     pub url: String,
@@ -216,39 +379,41 @@ pub fn build_chat_body(body: &Value, model: &str) -> Value {
     // 单轮原样发、多轮才拍平（理由见模块头：标记会显示在官方客户端里）
     let flat = plain_single_message(&messages)
         .unwrap_or_else(|| flatten_messages(&messages));
-    // reasoning_effort：客户端显式传了就透传（上游认这个键，取值 "")/thinking/
-    // deep_thinking 三档由 `meta_data.chat_mode` 与 `reasoning_effort` 共同表达）
-    let chat_mode = body
+    // ── 思考档位：客户端等级 → 智谱三档 ─────────────────────────
+    // 只有 `chat_mode` 进信封。**不要**再补 `reasoning_effort`：实测它会把
+    // 请求改路由到另一个内部模型（低档变超长思考、高档直接不思考），
+    // 三档反而全乱 —— 详见 [`Tier`] 的实测表。
+    let explicit_mode = body
         .get("chat_mode")
         .and_then(Value::as_str)
         .map(str::trim)
-        .unwrap_or("")
-        .to_string();
-    let reasoning_effort = body
-        .get("reasoning_effort")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .unwrap_or("")
-        .to_string();
+        .filter(|value| !value.is_empty());
+    let requested_tier = client_level(body).as_deref().and_then(tier_of);
+    let chat_mode = match explicit_mode {
+        // 智谱私有模式（`zero` / `deep_research` 等）：原样保留，不拿默认档改写
+        Some(mode) if tier_of(mode).is_none() => mode.to_string(),
+        // 客户端直接写了三档之一：同时给了等级时等级优先（标准字段更接近意图）
+        Some(mode) => requested_tier
+            .unwrap_or_else(|| tier_of(mode).unwrap_or_else(Tier::default_tier))
+            .chat_mode()
+            .to_string(),
+        // 没写私有模式：按客户端等级翻译；什么等级都没有 → 默认「深度」
+        None => requested_tier
+            .unwrap_or_else(Tier::default_tier)
+            .chat_mode()
+            .to_string(),
+    };
     let is_networking = body
         .get("is_networking")
         .or_else(|| body.get("enable_search"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let mut meta = json!({
+    let meta = json!({
         "platform": endpoints::APP_PLATFORM,
         "chat_mode": chat_mode,
         "selected_model": model,
         "is_networking": is_networking,
     });
-    if !reasoning_effort.is_empty() {
-        if let Some(object) = meta.as_object_mut() {
-            object.insert(
-                "reasoning_effort".to_string(),
-                Value::String(reasoning_effort),
-            );
-        }
-    }
     json!({
         "conversation_id": "",
         "messages": [{

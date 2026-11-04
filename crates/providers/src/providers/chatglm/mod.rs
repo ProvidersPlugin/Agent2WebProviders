@@ -210,6 +210,67 @@ impl Provider for ChatglmProvider {
         })
     }
 
+    /// 思考等级绑定：把映射上绑的档位翻译成智谱的思考三档。
+    ///
+    /// ── 为什么写顶层 `reasoning_effort` 而不是直接写 `chat_mode` ─────
+    /// 网关的注入点只改**顶层**请求体（`meta_data` 是插件在 `build_chat`
+    /// 里现构造的，注入时还不存在）。`reasoning_effort` 是顶层的标准键，
+    /// 只作为「网关 → 插件」的档位载体；`plan::build_chat_body` 读到它后
+    /// 翻成上游信封里的 `meta_data.chat_mode`（三档唯一开关），翻译逻辑只留
+    /// 一份。**不要**把它再写进 `meta_data`：实测那个字段会改上游路由
+    /// （见 `plan::Tier` 的实测表）。
+    ///
+    /// ── 为什么「快速」写成 `fast` 而不是空串 ─────────────────────
+    /// 空串在请求构造侧等价于「客户端没指定」，会回落到默认的「深度」；
+    /// 而绑定「快速」的语义是**明确关闭思考**，必须是一个能被识别的值。
+    /// `fast` 只在网关与插件之间传递，`build_chat_body` 会把它转成上游的
+    /// `chat_mode=""`。
+    fn reasoning_patch(&self, level: &str, _model: &str, body: &Value) -> proto::ReasoningPatch {
+        // 客户端显式指定过档位：绑定让位（用户的明确意图优先于映射默认值）
+        if plan::client_level(body).is_some()
+            || body
+                .get("chat_mode")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .is_some_and(|mode| !mode.is_empty())
+        {
+            return proto::ReasoningPatch::Skip {
+                reason: "客户端请求体里已指定思考档位".to_string(),
+            };
+        }
+        let Some(tier) = plan::tier_of(level) else {
+            return proto::ReasoningPatch::Skip {
+                reason: "该等级不在智谱清言的思考档位内".to_string(),
+            };
+        };
+        let value = if tier.chat_mode().is_empty() {
+            "fast".to_string()
+        } else {
+            tier.chat_mode().to_string()
+        };
+        proto::ReasoningPatch::Set {
+            field: "reasoning_effort".to_string(),
+            value: Value::String(value),
+        }
+    }
+
+    /// 请求日志「上游等级」：报告本次实际写进上游信封的开关档位。
+    ///
+    /// `chat_mode` 为空 = 快速档（明确没有思考）；`thinking` / `deep_thinking`
+    /// 原样报告；其它私有模式（`zero` / `deep_research` 等）不是思考档位，
+    /// 交回网关按客户端字段显示。
+    fn outbound_reasoning(&self, body: &Value) -> Option<Option<String>> {
+        let mode = body
+            .pointer("/meta_data/chat_mode")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        match mode {
+            "" => Some(None),
+            "thinking" | "deep_thinking" => Some(Some(mode.to_string())),
+            _ => None,
+        }
+    }
+
     /// 响应头是否表明上游错误。
     ///
     /// ── 本家为什么要覆写 ────────────────────────────────────────

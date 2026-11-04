@@ -1,12 +1,12 @@
 {
   "schema": 1,
   "description": {
-    "zh-CN": "网页提供商通过独立插件接入，智谱清言不属于 Agent 提供商。账号与模型数据沿用原提供商标识。",
-    "zh-Hant": "網頁提供商透過獨立外掛接入，智譜清言不屬於 Agent 提供商。帳號與模型資料沿用原提供商識別碼。",
-    "en": "Web providers are supplied by a separate plugin. Zhipu Qingyan is a web provider, not an Agent provider. Existing account and model identifiers are preserved.",
-    "ja": "Web プロバイダーは独立したプラグインで追加されます。智譜清言は Agent ではなく Web プロバイダーです。既存のアカウントとモデルの識別子を維持します。",
-    "ko": "웹 제공업체는 별도 플러그인으로 추가됩니다. Zhipu Qingyan은 Agent가 아닌 웹 제공업체입니다. 기존 계정과 모델 식별자는 유지됩니다.",
-    "pt-BR": "Os provedores web são fornecidos por um plugin separado. Zhipu Qingyan é um provedor web, não um provedor Agent. Os identificadores existentes de contas e modelos são preservados."
+    "zh-CN": "网页提供商通过独立插件接入，智谱清言、DeepSeek 网页与 Tabbit 都不属于 Agent 提供商。账号与模型数据沿用原提供商标识。",
+    "zh-Hant": "網頁提供商通過獨立插件接入，智譜清言、DeepSeek 網頁與 Tabbit 都不屬於 Agent 提供商。賬號與模型數據沿用原提供商標識。",
+    "en": "Web providers are supplied by a separate plugin. Zhipu Qingyan, DeepSeek Web and Tabbit are web providers, not Agent providers. Existing account and model identifiers are preserved.",
+    "ja": "Web プロバイダーは独立したプラグインで追加されます。智譜清言、DeepSeek Web、Tabbit は Agent ではなく Web プロバイダーです。既存のアカウントとモデルの識別子を維持します。",
+    "ko": "웹 제공업체는 별도 플러그인으로 추가됩니다. 智谱清言, DeepSeek 웹, Tabbit은 Agent가 아닌 웹 제공업체입니다. 기존 계정과 모델 식별자는 유지됩니다.",
+    "pt-BR": "Os provedores web são fornecidos por um plugin separado. Zhipu Qingyan, DeepSeek Web e Tabbit são provedores web, não provedores Agent. Os identificadores existentes de contas e modelos são preservados."
   },
   "providers": {
     "deepseek-web": {
@@ -54,6 +54,46 @@
           "ja": "ゲストモード、トークン貼り付け、Windows のローカルログイン情報の取り込みに対応します。ゲストは会話と認証情報の更新が可能です。ポイント、チェックイン、会員報酬、初回タスク、日次タスクにはログインが必要です。",
           "ko": "게스트 모드, 토큰 붙여넣기, Windows 로컬 로그인 가져오기를 지원합니다. 게스트는 대화와 인증 정보 갱신이 가능하며 포인트, 체크인, 회원 보상, 신규 및 일일 작업에는 로그인 계정이 필요합니다.",
           "pt-BR": "Suporta modo convidado, tokens colados e importação do login local no Windows. Convidados podem conversar e renovar credenciais; pontos, check-in, recompensas e tarefas iniciais e diárias exigem uma conta autenticada."
+        }
+      ]
+    },
+    "tabbit": {
+      "capabilities": {
+        "chat": { "status": "supported" },
+        "refresh": { "status": "undeclared" },
+        "model_refresh": { "status": "supported" },
+        "usage": { "status": "supported" },
+        "checkin": { "status": "supported" },
+        "claims": { "status": "undeclared" }
+      },
+      "notes": [
+        {
+          "zh-CN": "国内站支持手机号验证码登录，也可以使用本人网页登录态（Cookie 里的 token 与 user_id，或 DevTools 的 Copy as cURL）。国内站 web.tabbit.com 与国际站 web.tabbit.ai 是两套账号，令牌不通用、签名 key 也不同，因此拆成两个提供商。上游是 v3 房间协议：建会话 → join 订阅 → runs 投递，再翻译 SSE。网页只收一段纯文本，没有原生工具调用，传入 tools 会明确报错；图片输入尚未接入。登录态是 7 天 JWT，上游没有续期接口，过期后重新导入。额度是百分比制（已用 % / 会员等级 / 重置时间），签到是真实的 daily_sign_in。账号上的「解锁 Premium」默认开启：向 unique-uuid 发送「已设为默认浏览器」标记；关闭后 Premium 模型可能返回 492。",
+          "zh-Hant": "國內站支持手機號驗證碼登錄，也可以使用本人網頁登錄態（Cookie 裡的 token 與 user_id，或 DevTools 的 Copy as cURL）。國內站 web.tabbit.com 與國際站 web.tabbit.ai 是兩套賬號，令牌不通用、簽名 key 也不同，因此拆成兩個提供商。上游是 v3 房間協議：建會話 → join 訂閱 → runs 投遞，再翻譯 SSE。網頁只收一段純文本，沒有原生工具調用，傳入 tools 會明確報錯；圖片輸入尚未接入。登錄態是 7 天 JWT，上游沒有續期接口，過期後重新導入。額度是百分比制（已用 % / 會員等級 / 重置時間），簽到是真實的 daily_sign_in。賬號上的「解鎖 Premium」默認開啟：向 unique-uuid 發送「已設為默認瀏覽器」標記；關閉後 Premium 模型可能返回 492。",
+          "en": "The China site supports phone + SMS-code login, and you can also use your own web login state (token and user_id in the Cookie, or DevTools Copy as cURL). web.tabbit.com (China) and web.tabbit.ai (international) are separate account systems with different tokens and signing keys, so they are two providers. The upstream uses the v3 room protocol: create session → join for SSE → post runs, then translate events. The web endpoint accepts one plain-text string and has no native tool calls; tools requests fail explicitly, and image input is not wired yet. The login state is a 7-day JWT with no refresh endpoint; re-import after expiry. Quota is percentage-based (used %, member level, reset time), and check-in is the real daily_sign_in. The account-level \"Unlock Premium\" is on by default: it sends the \"set as default browser\" marker in unique-uuid; turning it off may make Premium models return 492.",
+          "ja": "中国サイトは携帯電話番号 + SMS コードでのログインに対応しており、本人の Web ログイン状態（Cookie の token と user_id、または DevTools の Copy as cURL）も使用できます。web.tabbit.com（中国）と web.tabbit.ai（国際）は別のアカウント体系で、トークンも署名キーも異なるため 2 つのプロバイダーに分けています。上流は v3 ルームプロトコル（セッション作成 → join で SSE 購読 → runs 送信）で、イベントを翻訳します。Web 側はプレーンテキスト 1 本のみを受け付け、ネイティブのツール呼び出しはありません。tools は明示的に拒否し、画像入力は未接続です。ログイン状態は 7 日間の JWT で更新エンドポイントがないため、期限切れ後は再取り込みが必要です。残量はパーセント制（使用率・会員レベル・リセット時刻）で、チェックインは実際の daily_sign_in です。アカウントの「Premium を解除」は既定で有効で、unique-uuid に「既定のブラウザに設定済み」マーカーを送ります。無効にすると Premium モデルが 492 を返す場合があります。",
+          "ko": "중국 사이트는 휴대폰 번호 + SMS 코드 로그인을 지원하며, 본인의 웹 로그인 상태(Cookie의 token과 user_id 또는 DevTools Copy as cURL)도 사용할 수 있습니다. web.tabbit.com(중국)과 web.tabbit.ai(국제)는 별도 계정 체계로 토큰과 서명 키가 달라 두 제공업체로 분리했습니다. 업스트림은 v3 룸 프로토콜(세션 생성 → join으로 SSE 구독 → runs 전송)을 사용하고 이벤트를 변환합니다. 웹은 순수 텍스트 한 덩어리만 받고 네이티브 도구 호출이 없습니다. tools는 명시적으로 거부하며 이미지 입력은 아직 연결되지 않았습니다. 로그인 상태는 7일 JWT이고 갱신 엔드포인트가 없어 만료 후 다시 가져와야 합니다. 할당량은 퍼센트제(사용률·회원 등급·초기화 시각)이고 체크인은 실제 daily_sign_in입니다. 계정의 \"Premium 잠금 해제\"는 기본으로 켜져 있어 unique-uuid에 \"기본 브라우저로 설정됨\" 표시를 보냅니다. 끄면 Premium 모델이 492를 반환할 수 있습니다.",
+          "pt-BR": "O site da China aceita login por telefone + código SMS, e você também pode usar seu próprio estado de login web (token e user_id no Cookie, ou Copy as cURL do DevTools). web.tabbit.com (China) e web.tabbit.ai (internacional) são sistemas de conta separados, com tokens e chaves de assinatura diferentes, por isso são dois provedores. O upstream usa o protocolo de sala v3: criar sessão → join para SSE → enviar runs, depois traduzir os eventos. O endpoint web aceita apenas um texto puro e não tem chamadas de ferramenta nativas; requisições com tools falham explicitamente, e entrada de imagem ainda não foi ligada. O login é um JWT de 7 dias sem endpoint de renovação; importe novamente após expirar. A cota é percentual (usado %, nível de membro, hora de reset), e o check-in é o daily_sign_in real. O \"Desbloquear Premium\" da conta vem ligado por padrão: envia o marcador \"definido como navegador padrão\" no unique-uuid; desligá-lo pode fazer os modelos Premium retornarem 492."
+        }
+      ]
+    },
+    "tabbit-intl": {
+      "capabilities": {
+        "chat": { "status": "supported" },
+        "refresh": { "status": "undeclared" },
+        "model_refresh": { "status": "supported" },
+        "usage": { "status": "supported" },
+        "checkin": { "status": "supported" },
+        "claims": { "status": "undeclared" }
+      },
+      "notes": [
+        {
+          "zh-CN": "使用本人网页登录态（Cookie 里的 token 与 user_id，或 DevTools 的 Copy as cURL）。国内站 web.tabbit.com 与国际站 web.tabbit.ai 是两套账号，令牌不通用、签名 key 也不同，因此拆成两个提供商。上游是 v3 房间协议：建会话 → join 订阅 → runs 投递，再翻译 SSE。网页只收一段纯文本，没有原生工具调用，传入 tools 会明确报错；图片输入尚未接入。登录态是 7 天 JWT，上游没有续期接口，过期后重新导入。额度是百分比制（已用 % / 会员等级 / 重置时间），签到是真实的 daily_sign_in。账号上的「解锁 Premium」默认开启：向 unique-uuid 发送「已设为默认浏览器」标记；关闭后 Premium 模型可能返回 492。",
+          "zh-Hant": "使用本人網頁登錄態（Cookie 裡的 token 與 user_id，或 DevTools 的 Copy as cURL）。國內站 web.tabbit.com 與國際站 web.tabbit.ai 是兩套賬號，令牌不通用、簽名 key 也不同，因此拆成兩個提供商。上游是 v3 房間協議：建會話 → join 訂閱 → runs 投遞，再翻譯 SSE。網頁只收一段純文本，沒有原生工具調用，傳入 tools 會明確報錯；圖片輸入尚未接入。登錄態是 7 天 JWT，上游沒有續期接口，過期後重新導入。額度是百分比制（已用 % / 會員等級 / 重置時間），簽到是真實的 daily_sign_in。賬號上的「解鎖 Premium」默認開啟：向 unique-uuid 發送「已設為默認瀏覽器」標記；關閉後 Premium 模型可能返回 492。",
+          "en": "Uses your own web login state (token and user_id in the Cookie, or DevTools Copy as cURL). web.tabbit.com (China) and web.tabbit.ai (international) are separate account systems with different tokens and signing keys, so they are two providers. The upstream uses the v3 room protocol: create session → join for SSE → post runs, then translate events. The web endpoint accepts one plain-text string and has no native tool calls; tools requests fail explicitly, and image input is not wired yet. The login state is a 7-day JWT with no refresh endpoint; re-import after expiry. Quota is percentage-based (used %, member level, reset time), and check-in is the real daily_sign_in. The account-level \"Unlock Premium\" is on by default: it sends the \"set as default browser\" marker in unique-uuid; turning it off may make Premium models return 492.",
+          "ja": "本人の Web ログイン状態（Cookie の token と user_id、または DevTools の Copy as cURL）を使用します。web.tabbit.com（中国）と web.tabbit.ai（国際）は別のアカウント体系で、トークンも署名キーも異なるため 2 つのプロバイダーに分けています。上流は v3 ルームプロトコル（セッション作成 → join で SSE 購読 → runs 送信）で、イベントを翻訳します。Web 側はプレーンテキスト 1 本のみを受け付け、ネイティブのツール呼び出しはありません。tools は明示的に拒否し、画像入力は未接続です。ログイン状態は 7 日間の JWT で更新エンドポイントがないため、期限切れ後は再取り込みが必要です。残量はパーセント制（使用率・会員レベル・リセット時刻）で、チェックインは実際の daily_sign_in です。アカウントの「Premium を解除」は既定で有効で、unique-uuid に「既定のブラウザに設定済み」マーカーを送ります。無効にすると Premium モデルが 492 を返す場合があります。",
+          "ko": "본인의 웹 로그인 상태(Cookie의 token과 user_id 또는 DevTools Copy as cURL)를 사용합니다. web.tabbit.com(중국)과 web.tabbit.ai(국제)는 별도 계정 체계로 토큰과 서명 키가 달라 두 제공업체로 분리했습니다. 업스트림은 v3 룸 프로토콜(세션 생성 → join으로 SSE 구독 → runs 전송)을 사용하고 이벤트를 변환합니다. 웹은 순수 텍스트 한 덩어리만 받고 네이티브 도구 호출이 없습니다. tools는 명시적으로 거부하며 이미지 입력은 아직 연결되지 않았습니다. 로그인 상태는 7일 JWT이고 갱신 엔드포인트가 없어 만료 후 다시 가져와야 합니다. 할당량은 퍼센트제(사용률·회원 등급·초기화 시각)이고 체크인은 실제 daily_sign_in입니다. 계정의 \"Premium 잠금 해제\"는 기본으로 켜져 있어 unique-uuid에 \"기본 브라우저로 설정됨\" 표시를 보냅니다. 끄면 Premium 모델이 492를 반환할 수 있습니다.",
+          "pt-BR": "Usa o seu próprio estado de login web (token e user_id no Cookie, ou Copy as cURL do DevTools). web.tabbit.com (China) e web.tabbit.ai (internacional) são sistemas de conta separados, com tokens e chaves de assinatura diferentes, por isso são dois provedores. O upstream usa o protocolo de sala v3: criar sessão → join para SSE → enviar runs, depois traduzir os eventos. O endpoint web aceita apenas um texto puro e não tem chamadas de ferramenta nativas; requisições com tools falham explicitamente, e entrada de imagem ainda não foi ligada. O login é um JWT de 7 dias sem endpoint de renovação; importe novamente após expirar. A cota é percentual (usado %, nível de membro, hora de reset), e o check-in é o daily_sign_in real. O \"Desbloquear Premium\" da conta vem ligado por padrão: envia o marcador \"definido como navegador padrão\" no unique-uuid; desligá-lo pode fazer os modelos Premium retornarem 492."
         }
       ]
     }

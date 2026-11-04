@@ -12,9 +12,10 @@ path = "src/main.rs"
 
 [features]
 default = ["all"]
-all = ["chatglm", "deepseek"]
+all = ["chatglm", "deepseek", "tabbit"]
 chatglm = []
 deepseek = []
+tabbit = []
 
 [dependencies]
 agent2api-provider-protocol = { git = "https://github.com/ProvidersPlugin/Agent2Providers", tag = "v3.4.0" }
@@ -24,6 +25,9 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "str
 url = "2"
 base64 = "0.22"
 md-5 = "0.10"
+# Tabbit 的请求签名：HMAC-SHA256(signKey, "{ts}.{uuid}.{sha256(body)}")
+sha2 = "0.10"
+hmac = "0.12"
 getrandom = "0.2"
 futures = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "time"] }
