@@ -31,8 +31,10 @@ hmac = "0.12"
 getrandom = "0.2"
 futures = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+# safeStorage 解密在 Windows 上用 DPAPI + AES-GCM；JWT 解析（Tabbit）走同一模块，
+# 因此 AES 不能只在 Windows 目标下编译 —— 非 Windows 也要能构建（CI 三平台）。
+aes-gcm = { version = "0.11", default-features = false, features = ["aes", "alloc"] }
 
 [target.'cfg(windows)'.dependencies]
-aes-gcm = { version = "0.11", default-features = false, features = ["aes", "alloc"] }
 rusqlite = { version = "0.40", features = ["bundled"] }
 windows = { version = "0.61", features = ["Win32_Security_Cryptography"] }
