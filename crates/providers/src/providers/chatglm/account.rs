@@ -159,9 +159,11 @@ pub(super) async fn normalize(input: proto::NormalizeInput) -> Result<proto::Nor
             Err(reason) => return Err(GatewayError::with_status(400, reason)),
         },
         proto::NormalizeSource::FileText { content, .. } => {
-            // 文件导入：内容就是用户粘的那段（可能是一整份 JSON，也可能是一串令牌）
-            let token = token_from_text(content)?;
-            (token, String::new(), "manual")
+            // 文件导入：内容就是用户粘的那段（可能是一整份 JSON，也可能是一串令牌）。
+            // 整段 Cookie 里的 `chatglm_refresh_token` 一并解析（缺它，access 过期
+            // 后 `user/refresh` 无从续期，账号只能等死 —— 见 tokens_from_text）。
+            let (token, refresh) = tokens_from_text(content)?;
+            (token, refresh, "manual")
         }
         proto::NormalizeSource::FileBase64 { .. } => {
             return Err(GatewayError::with_status(
@@ -193,14 +195,12 @@ pub(super) async fn normalize(input: proto::NormalizeInput) -> Result<proto::Nor
                         "请提供智谱清言的访问令牌（accessToken）",
                     ));
                 }
-                // 用户可能整段粘了 `chatglm_token=xxx;` 形态
-                let token = plain_token
-                    .trim()
-                    .trim_start_matches("chatglm_token=")
-                    .trim_end_matches(';')
-                    .trim()
-                    .to_string();
-                (token, String::new(), "manual")
+                // 用户可能整段粘了 Cookie（`chatglm_token=…; chatglm_refresh_token=…;`），
+                // 或 JSON / 裸令牌 —— 统一交给 tokens_from_text 解析。早先的实现
+                // 只认 `chatglm_token=`、把 refresh_token 静默丢弃：账号能建、能转
+                // 发，但 access 过期后无法续期（401「缺少刷新令牌」），只能重新添加。
+                let (token, refresh) = tokens_from_text(&plain_token)?;
+                (token, refresh, "manual")
             }
         }
     };
@@ -266,25 +266,128 @@ pub(super) async fn normalize(input: proto::NormalizeInput) -> Result<proto::Nor
 }
 
 /// 从一段文本里取出令牌（文件导入用）：先试 JSON，再当裸令牌。
-fn token_from_text(content: &str) -> Result<String, GatewayError> {
+/// 从用户粘贴的文本解析 `(access_token, refresh_token)`。
+///
+/// 接受三种形态（与桌面导入 `read_desktop_credentials` 的取值一致）：
+///   1. JSON：顶层 `accessToken` / `access_token` / `token`，可选
+///      `refreshToken` / `refresh_token`；
+///   2. Cookie 串：`chatglm_token=…; chatglm_refresh_token=…;`（顺序无关，
+///      其余 cookie 忽略；也接受换行分隔）；
+///   3. 裸令牌：单个值按 access_token 处理（向后兼容）。
+///
+/// refresh 为空不报错：裸令牌本就没有它；但 access 取不到仍按原样报 400 ——
+/// 仅 refresh 无法完成添加校验（`user/info` 要 access）。
+fn tokens_from_text(content: &str) -> Result<(String, String), GatewayError> {
     let trimmed = content.trim();
     if trimmed.is_empty() {
         return Err(GatewayError::with_status(400, "凭证文件是空的"));
     }
     if let Ok(parsed) = serde_json::from_str::<Value>(trimmed) {
-        let token = crate::store::pick(&parsed, &["accessToken", "access_token", "token"]);
-        if !token.is_empty() {
-            return Ok(token);
+        if parsed.is_object() {
+            let access = crate::store::pick(&parsed, &["accessToken", "access_token", "token"]);
+            let refresh = crate::store::pick(&parsed, &["refreshToken", "refresh_token"]);
+            if access.is_empty() {
+                return Err(GatewayError::with_status(
+                    400,
+                    "凭证文件里没有 accessToken / token 字段",
+                ));
+            }
+            return Ok((access, refresh));
         }
+    }
+    // Cookie 串：逐个 `k=v` 片段认两条已知 cookie 名
+    let mut access = String::new();
+    let mut refresh = String::new();
+    for part in trimmed.split([';', '\n']) {
+        let part = part.trim();
+        if let Some(value) = part.strip_prefix(credentials::COOKIE_ACCESS_TOKEN).map(str::trim) {
+            if let Some(value) = value.strip_prefix('=') {
+                access = value.trim().to_string();
+            }
+        } else if let Some(value) = part
+            .strip_prefix(credentials::COOKIE_REFRESH_TOKEN)
+            .map(str::trim)
+        {
+            if let Some(value) = value.strip_prefix('=') {
+                refresh = value.trim().to_string();
+            }
+        }
+    }
+    if access.is_empty() && !refresh.is_empty() {
+        // 只有 refresh 也能续期换出 access，但添加校验需要 access —— 明说，
+        // 别让用户对着「校验失败」猜
         return Err(GatewayError::with_status(
             400,
-            "凭证文件里没有 accessToken / token 字段",
+            "粘贴内容里只有 chatglm_refresh_token、没有 chatglm_token：请一并粘贴两条 cookie",
         ));
     }
-    Ok(trimmed
-        .trim_start_matches("chatglm_token=")
-        .trim_end_matches(';')
-        .trim()
-        .to_string())
+    if access.is_empty() {
+        // 裸令牌（原行为）：整段按 access_token 处理
+        access = trimmed
+            .trim_start_matches("chatglm_token=")
+            .trim_end_matches(';')
+            .trim()
+            .to_string();
+    }
+    Ok((access, refresh))
+}
+
+#[cfg(test)]
+// 测试断言路径允许 unwrap：主程序 `#![deny(clippy::unwrap_used)]` 只为生产代码
+// panic 安全，测试里 unwrap 失败本身就是测试失败，语义等价 expect。
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::tokens_from_text;
+
+    #[test]
+    fn whole_cookie_yields_both_tokens() {
+        let text = "chatglm_token=abc123; chatglm_refresh_token=ref456; chatglm_site=xyz";
+        let (access, refresh) = tokens_from_text(text).unwrap();
+        assert_eq!(access, "abc123");
+        assert_eq!(refresh, "ref456");
+    }
+
+    #[test]
+    fn cookie_refresh_only_is_rejected_with_clear_message() {
+        let text = "chatglm_refresh_token=ref456;";
+        let error = tokens_from_text(text).unwrap_err();
+        assert!(error.message.contains("chatglm_refresh_token"));
+        assert!(error.message.contains("chatglm_token"));
+    }
+
+    #[test]
+    fn cookie_order_is_irrelevant() {
+        let text = "chatglm_refresh_token=ref456;\nchatglm_token=abc123";
+        let (access, refresh) = tokens_from_text(text).unwrap();
+        assert_eq!(access, "abc123");
+        assert_eq!(refresh, "ref456");
+    }
+
+    #[test]
+    fn json_payload_keeps_refresh_token() {
+        let text = r#"{"accessToken":"abc123","refreshToken":"ref456"}"#;
+        let (access, refresh) = tokens_from_text(text).unwrap();
+        assert_eq!(access, "abc123");
+        assert_eq!(refresh, "ref456");
+    }
+
+    #[test]
+    fn bare_token_still_works() {
+        let (access, refresh) = tokens_from_text("just-a-bare-token").unwrap();
+        assert_eq!(access, "just-a-bare-token");
+        assert_eq!(refresh, "");
+    }
+
+    #[test]
+    fn legacy_token_prefix_without_refresh() {
+        let (access, refresh) = tokens_from_text("chatglm_token=abc123;").unwrap();
+        assert_eq!(access, "abc123");
+        assert_eq!(refresh, "");
+    }
+
+    #[test]
+    fn empty_input_is_rejected() {
+        assert!(tokens_from_text("   ").is_err());
+    }
 }
 
