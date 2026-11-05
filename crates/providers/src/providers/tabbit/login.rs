@@ -5,6 +5,10 @@
 //!   POST /proxy/v0/oauth/send-verification-code
 //!        {"uuid":"<64 位随机串>","platform":"1","version":"","app":"1000","mobile":"<手机号>"}
 //!        → {"code":0,"error":null,"data":null}
+//!        → 风控拦截时（可能是 HTTP 200，也可能是 4xx）：
+//!          {"code":1,"error":{"msg":"需要进行滑块验证"},
+//!           "data":{"requestCode":"…","verifyUrl":"https://verify.meituan.com/v2/…"}}
+//!          用户在 verifyUrl 手动过滑块后**重新发一次码**才成功（见 challenge_of 的说明）
 //!   POST /proxy/v0/oauth/login
 //!        同上前缀 + {"smsCode":"<验证码>","device_info":{…}}
 //!        → {"success":true,"code":"<授权码>","expires_in":604800,
@@ -175,6 +179,18 @@ fn login_error_text(status: u16, value: &Value, raw: &str) -> String {
     {
         return tidy_upstream(text);
     }
+    // 风控拦截时 `error` 是个对象：`{"error":{"msg":"需要进行滑块验证",…}}`。
+    // 不取这一层的话会落到下面的 raw 分支，把整段 JSON 原样端给用户
+    //（界面上就是截图里那串码）。
+    if let Some(text) = value
+        .get("error")
+        .and_then(|error| error.get("msg").or_else(|| error.get("message")))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+    {
+        return tidy_upstream(text);
+    }
     if let Some(detail) = value.get("detail").and_then(Value::as_array) {
         if let Some(text) = detail
             .first()
@@ -238,12 +254,65 @@ fn jwt_claim(token: &str, keys: &[&str]) -> String {
         .to_string()
 }
 
+/// 上游的风控拦截信息：`data.requestCode` + `data.verifyUrl`。
+///
+/// ── 为什么这是一个状态而不是错误（2026-11 实测）────────────────
+/// 发码接口在风控判定人机可疑时会回：
+/// ```text
+/// {"code":1,"error":{"msg":"需要进行滑块验证","timeStamp":…},
+///  "data":{"requestCode":"…","verifyUrl":"https://verify.meituan.com/v2/…"}}
+/// ```
+/// 用户必须在 `verifyUrl` 里手动完成滑块，之后**重新发一次码**才会成功。
+/// 官方网页版就是这么做的：Yoda SDK 的 `succCallbackFun({requestCode,responseCode})`
+/// 只用来关掉弹窗，不补发短信（见 `_next/static/chunks/85071-*.js` 里
+/// `sendCodeTrigger` 的 `k()`）。所以这里把它回成 `status: "captcha"`，
+/// 界面据此打开验证页、保留本次 uuid，再让用户点一次发送 —— 猜测上游的
+/// 回传字段、或把「点了按钮」当成验证通过，都会变成静默失败。
+fn challenge_of(value: &Value) -> Option<Value> {
+    let data = value.get("data")?;
+    let request_code = data.get("requestCode").and_then(Value::as_str)?.trim();
+    let verify_url = data.get("verifyUrl").and_then(Value::as_str)?.trim();
+    if request_code.is_empty() || !is_meituan_https(verify_url) {
+        return None;
+    }
+    let message = value
+        .get("error")
+        .and_then(|error| error.get("msg"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .unwrap_or("需要进行人机验证");
+    Some(json!({
+        "requestCode": request_code,
+        "verifyUrl": verify_url,
+        "message": message,
+    }))
+}
+
+/// 验证页地址只接受 https 的美团域（含子域）。
+///
+/// 这个地址会被界面直接拿去开页面，不能把上游返回的任意 URL 当窗口地址用。
+/// 不满足条件时按「没有验证地址」处理：界面会退回到可读的错误提示，而不是
+/// 打开一个来路不明的链接。
+fn is_meituan_https(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://") else { return false; };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    // 去掉 `user:pass@` 与 `:port`
+    let host = authority.rsplit('@').next().unwrap_or("");
+    let host = host.split(':').next().unwrap_or("").to_ascii_lowercase();
+    host == "meituan.com" || host.ends_with(".meituan.com")
+}
+
 pub async fn sms_send(ctx: &PluginCtx, payload: &Value) -> Result<Value, GatewayError> {
     let phone = crate::store::pick(payload, &["phone", "mobile"]);
     if phone.trim().is_empty() {
         return Err(bad("请填写手机号"));
     }
-    let uuid = login_uuid();
+    // 同一轮登录复用同一个 uuid：官方网页版在页面加载时生成一次，之后发码、
+    // 过滑块后重发、登录都用它。过完滑块重发时如果换了 uuid，上游会当成
+    // 另一次会话（拿不到刚通过验证的那次风控结论）。
+    let provided = crate::store::pick(payload, &["uuid"]);
+    let uuid = if provided.is_empty() { login_uuid() } else { provided };
     let body = json!({
         "uuid": uuid,
         "platform": LOGIN_PLATFORM,
@@ -253,6 +322,14 @@ pub async fn sms_send(ctx: &PluginCtx, payload: &Value) -> Result<Value, Gateway
     });
     let (status, value, raw, _) =
         post_login(ctx, Realm::Cn, "/proxy/v0/oauth/send-verification-code", &body).await?;
+    if let Some(captcha) = challenge_of(&value) {
+        return Ok(json!({
+            "status": "captcha",
+            "uuid": uuid,
+            "deviceId": uuid,
+            "captcha": captcha,
+        }));
+    }
     if !(200..300).contains(&status) {
         return Err(bad(login_error_text(status, &value, &raw)));
     }

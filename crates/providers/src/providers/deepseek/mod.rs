@@ -4,19 +4,22 @@
 //! 网页 completion 没有原生 tools 契约，不能把提示词模拟标成工具调用支持。
 //! 未确认凭证续期、独立余额、签到或领取接口，不声明这些能力。
 
+mod account;
 mod images;
 mod login;
 mod models;
 mod pow;
 mod prompt;
+mod response;
 mod stream;
 
 use std::time::Duration;
-use md5::{Digest, Md5};
 use agent2api_provider_protocol as proto;
 use agent2api_provider_sdk::{control_error, ConversationSink, PluginCtx, Provider, ProviderMeta, SendFuture};
 use futures::StreamExt;
 use serde_json::{json, Value};
+
+use response::{control as control_response, network_error};
 
 pub const ID: &str = "deepseek-web";
 const BASE: &str = "https://chat.deepseek.com";
@@ -58,8 +61,9 @@ fn record_client(record: &agent2api_provider_sdk::StoreAccount, gateway: &str) -
     }
 }
 
-fn headers(token: &str, cookie: &str) -> Vec<(String, String)> {
-    let mut headers = vec![("Authorization".into(), format!("Bearer {token}")), ("Content-Type".into(), "application/json".into()),
+fn headers(token: &str, cookie: &str, user_agent: &str) -> Vec<(String, String)> {
+    let mut headers = vec![("Authorization".into(), format!("Bearer {token}")),
+        ("User-Agent".into(), user_agent.into()),
         ("Accept".into(), "application/json".into()), ("Origin".into(), BASE.into()), ("Referer".into(), format!("{BASE}/")),
         ("x-client-platform".into(), "web".into()), ("x-client-version".into(), "2.7.0".into()), ("x-client-locale".into(), "zh_CN".into()),
         ("x-client-bundle-id".into(), "com.deepseek.chat".into())];
@@ -67,34 +71,16 @@ fn headers(token: &str, cookie: &str) -> Vec<(String, String)> {
     headers
 }
 
-async fn control_response(response: reqwest::Response) -> Result<Value, String> {
-    let status = response.status().as_u16();
-    let mut bytes = Vec::new();
-    let mut source = response.bytes_stream();
-    while let Some(chunk) = source.next().await {
-        let chunk = chunk.map_err(|_| "DeepSeek 响应读取失败")?;
-        if bytes.len().saturating_add(chunk.len()) > 1024 * 1024 { return Err("DeepSeek 控制响应过大".into()); }
-        bytes.extend_from_slice(&chunk);
-    }
-    let value: Value = serde_json::from_slice(&bytes).map_err(|_| control_error(403, "DeepSeek 网页要求人机验证，请在官方网页手动登录后更新 Cookie", None, None))?;
-    if !(200..300).contains(&status) || value["code"].as_i64().is_some_and(|code| code != 0) || value.pointer("/data/biz_code").and_then(Value::as_i64).is_some_and(|code| code != 0) {
-        let message = [value.get("msg"), value.pointer("/data/biz_msg")].into_iter().flatten()
-            .filter_map(Value::as_str).find(|message| !message.is_empty()).unwrap_or("DeepSeek 网页请求失败");
-        return Err(control_error(if status >= 400 { i32::from(status) } else { 400 }, message, None, None));
-    }
-    Ok(value)
-}
-
 async fn post(client: &reqwest::Client, path: &str, headers: &[(String, String)], body: Value) -> Result<Value, String> {
     let mut request = client.post(format!("{BASE}{path}")).json(&body).timeout(Duration::from_secs(30));
     for (name, value) in headers { request = request.header(name, value); }
-    control_response(request.send().await.map_err(|_| "DeepSeek 请求失败")?).await
+    control_response(request.send().await.map_err(network_error)?, headers).await
 }
 
 async fn get(client: &reqwest::Client, path: &str, headers: &[(String, String)], query: &[(&str, &str)]) -> Result<Value, String> {
     let mut request = client.get(format!("{BASE}{path}")).query(query).timeout(Duration::from_secs(30));
     for (name, value) in headers { request = request.header(name, value); }
-    control_response(request.send().await.map_err(|_| "DeepSeek 请求失败")?).await
+    control_response(request.send().await.map_err(network_error)?, headers).await
 }
 
 async fn proof(client: &reqwest::Client, headers: &[(String, String)], path: &str) -> Result<String, String> {
@@ -109,7 +95,7 @@ async fn prepare_and_forward(ctx: &PluginCtx, req: proto::ConversationRequest, s
     let record = ctx.store_get(ID, &req.account).await.map_err(|_| "DeepSeek 网页账号不存在")?;
     let token = record.secret["accessToken"].as_str().filter(|token| !token.is_empty()).ok_or("DeepSeek 网页账号缺少访问令牌")?;
     let cookie = record.secret["cookie"].as_str().unwrap_or("");
-    let headers = headers(token, cookie);
+    let headers = headers(token, cookie, account::user_agent(&record.secret)?);
     let client = client(req.proxy.as_ref(), &ctx.env.proxy)?;
     let model = if req.wire_model.is_empty() { req.body["model"].as_str().unwrap_or("") } else { &req.wire_model };
     if !models::accepts(model) { return Err(bad_input("DeepSeek 网页请选择 deepseek-web-flash")); }
@@ -220,7 +206,7 @@ impl Provider for DeepseekWebProvider {
             let record = ctx.store_get(ID, account).await.map_err(|_| "DeepSeek 网页账号不存在")?;
             let token = record.secret["accessToken"].as_str().filter(|token| !token.is_empty()).ok_or("DeepSeek 网页账号缺少访问令牌")?;
             let client = record_client(&record, &ctx.env.proxy)?;
-            let headers = headers(token, record.secret["cookie"].as_str().unwrap_or(""));
+            let headers = headers(token, record.secret["cookie"].as_str().unwrap_or(""), account::user_agent(&record.secret)?);
             Ok(models::load(&record.id, &client, &headers, false).await?.list)
         })
     }
@@ -229,7 +215,7 @@ impl Provider for DeepseekWebProvider {
             let record = ctx.store_get(ID, account).await.map_err(|_| "DeepSeek 网页账号不存在")?;
             let token = record.secret["accessToken"].as_str().filter(|token| !token.is_empty()).ok_or("DeepSeek 网页账号缺少访问令牌")?;
             let client = record_client(&record, &ctx.env.proxy)?;
-            let headers = headers(token, record.secret["cookie"].as_str().unwrap_or(""));
+            let headers = headers(token, record.secret["cookie"].as_str().unwrap_or(""), account::user_agent(&record.secret)?);
             match models::load(&record.id, &client, &headers, force).await {
                 Ok(catalog) => Ok(proto::RefreshOutcome::refreshed(catalog.list.models.len())),
                 Err(error) => Ok(proto::RefreshOutcome::failed(error)),
@@ -273,31 +259,6 @@ impl Provider for DeepseekWebProvider {
         Box::pin(async move { login::cancel(flow); Ok(()) })
     }
     fn normalize_account<'a>(&'a self, ctx: &'a PluginCtx, input: proto::NormalizeInput) -> SendFuture<'a, proto::NormalizedAccount> {
-        Box::pin(async move {
-            let payload = match input.source {
-                proto::NormalizeSource::Manual { payload } if payload.get("methodIndex").is_some() => {
-                    if payload["methodIndex"].as_u64() != Some(0) { return Err("DeepSeek 网页登录方式索引无效".into()); }
-                    let fields = payload["inputs"].as_object().ok_or("DeepSeek 网页登录 inputs 必须是字符串字段对象")?;
-                    if fields.iter().any(|(key, value)| !matches!(key.as_str(), "accessToken" | "cookie") || !value.is_string()) {
-                        return Err("DeepSeek 网页登录 inputs 包含未申报的字段或非字符串值".into());
-                    }
-                    Value::Object(fields.clone())
-                },
-                proto::NormalizeSource::Manual { payload } => payload,
-                proto::NormalizeSource::FileText { content, .. } => serde_json::from_str(&content).unwrap_or_else(|_| json!({ "token": content })),
-                _ => return Err("DeepSeek 网页请粘贴本人登录令牌与 Cookie".into()),
-            };
-            let token = ["accessToken", "token", "apiKey"].into_iter().find_map(|key| payload[key].as_str()).unwrap_or("").trim().trim_start_matches("Bearer ").to_string();
-            let cookie = payload["cookie"].as_str().unwrap_or("").trim().to_string();
-            if token.is_empty() || token.len() > 16384 || token.starts_with("sk-") || cookie.len() > 32768 || token.contains(['\r', '\n']) || cookie.contains(['\r', '\n']) { return Err("请填写有效的 DeepSeek 网页访问令牌，不是收费 API Key".into()); }
-            let client = client(input.proxy.as_ref(), &ctx.env.proxy)?;
-            let headers = headers(&token, &cookie);
-            let response = post(&client, "/api/v0/chat/create_pow_challenge", &headers, json!({ "target_path": "/api/v0/chat/completion" })).await?;
-            if response.pointer("/data/biz_data/challenge").is_none() { return Err("DeepSeek 登录态校验失败：未返回验证 challenge".into()); }
-            let tail: String = token.chars().rev().take(8).collect::<Vec<_>>().into_iter().rev().collect();
-            let uid = format!("{:x}", Md5::digest(token.as_bytes()));
-            Ok(proto::NormalizedAccount { identity: format!("{ID}-{uid}"), secret: json!({ "accessToken": token, "cookie": cookie }),
-                public: json!({ "name": input.name.unwrap_or_else(|| format!("DeepSeek {tail}")), "tokenTail": tail, "uid": uid, "credentialIdentity": true }), desktop: false })
-        })
+        Box::pin(async move { account::normalize(ctx, input).await })
     }
 }

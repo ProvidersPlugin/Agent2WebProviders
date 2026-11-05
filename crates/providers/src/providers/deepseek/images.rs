@@ -163,7 +163,7 @@ pub async fn upload(
             if !name.eq_ignore_ascii_case("content-type") { request = request.header(name, value); }
         }
         let response = request.send().await.map_err(|_| "DeepSeek 图片上传失败")?;
-        let result = super::control_response(response).await?;
+        let result = super::control_response(response, headers).await?;
         let file_id = result.pointer("/data/biz_data/id").and_then(Value::as_str)
             .filter(|id| !id.is_empty() && id.len() <= 256).ok_or("DeepSeek 图片上传未返回文件标识")?;
         ready(client, headers, file_id).await?;

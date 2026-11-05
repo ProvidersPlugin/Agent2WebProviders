@@ -75,7 +75,7 @@ pub async fn callback(ctx: &PluginCtx, callback: proto::LoginCallback) -> Result
     let payload: Value = serde_json::from_str(&callback.code)
         .map_err(|_| failure(400, "DeepSeek 登录回调不是有效的凭证对象"))?;
     let fields = payload.as_object().ok_or_else(|| failure(400, "DeepSeek 登录回调必须是凭证对象"))?;
-    if fields.iter().any(|(key, value)| !matches!(key.as_str(), "accessToken" | "cookie") || !value.is_string()) {
+    if fields.iter().any(|(key, value)| !matches!(key.as_str(), "accessToken" | "cookie" | "userAgent") || !value.is_string()) {
         return Err(failure(400, "DeepSeek 登录回调包含无效字段"));
     }
     let (name, proxy) = {
