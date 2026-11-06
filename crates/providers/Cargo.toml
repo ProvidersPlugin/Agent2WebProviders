@@ -23,6 +23,7 @@ agent2api-provider-sdk = { git = "https://github.com/ProvidersPlugin/Agent2Provi
 serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "socks", "multipart"] }
 url = "2"
+percent-encoding = "2"
 base64 = "0.22"
 md-5 = "0.10"
 # Tabbit 的请求签名：HMAC-SHA256(signKey, "{ts}.{uuid}.{sha256(body)}")

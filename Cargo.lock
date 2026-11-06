@@ -71,6 +71,7 @@ dependencies = [
  "getrandom 0.2.17",
  "hmac",
  "md-5",
+ "percent-encoding",
  "reqwest",
  "rusqlite",
  "serde_json",

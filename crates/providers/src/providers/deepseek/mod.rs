@@ -38,7 +38,7 @@ fn bad_input(message: &str) -> String {
 
 fn client_builder(proxy: Option<&proto::WireProxy>, gateway: &str) -> Result<reqwest::ClientBuilder, String> {
     let mut builder = reqwest::Client::builder().no_proxy().redirect(reqwest::redirect::Policy::none()).connect_timeout(Duration::from_secs(15));
-    let url = proxy.map(proto::WireProxy::to_url).unwrap_or_else(|| gateway.to_string());
+    let url = proxy.map(crate::proxy::proxy_url).unwrap_or_else(|| gateway.to_string());
     if !url.trim().is_empty() && url != "direct" { builder = builder.proxy(reqwest::Proxy::all(&url).map_err(|_| "DeepSeek 出网代理无效")?); }
     Ok(builder)
 }
@@ -48,17 +48,10 @@ fn client(proxy: Option<&proto::WireProxy>, gateway: &str) -> Result<reqwest::Cl
 }
 
 fn record_client(record: &agent2api_provider_sdk::StoreAccount, gateway: &str) -> Result<reqwest::Client, String> {
-    use agent2api_provider_sdk::StoreProxy;
-    match &record.proxy {
-        Some(StoreProxy::Resolved { proxy }) => client(Some(proxy), gateway),
-        Some(StoreProxy::Static { config }) if config["source"] == "direct" => client(None, "direct"),
-        Some(StoreProxy::Static { config }) => {
-            let proxy: proto::WireProxy = serde_json::from_value(config.clone()).map_err(|_| "DeepSeek 账号代理格式无效")?;
-            client(Some(&proxy), gateway)
-        }
-        Some(StoreProxy::Failed { .. }) => Err("DeepSeek 账号代理不可用，请重新选择".into()),
-        Some(StoreProxy::Unset) | None => client(None, gateway),
-    }
+    let config = crate::proxy::account_config(record);
+    let proxy = crate::proxy::account_proxy(Some(&config)).map_err(|error| error.into_control_message())?;
+    let gateway = if config.get("source").and_then(Value::as_str) == Some("direct") { "direct" } else { gateway };
+    client(proxy.as_ref(), gateway)
 }
 
 fn headers(token: &str, cookie: &str, user_agent: &str) -> Vec<(String, String)> {

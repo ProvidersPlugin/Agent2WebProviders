@@ -451,6 +451,7 @@ pub fn list_report() -> proto::ModelList {
 pub async fn refresh(
     token: &str,
     device_id: &str,
+    proxy: Option<&agent2api_provider_protocol::WireProxy>,
     force: bool,
 ) -> RefreshOutcome {
     let now = crate::logging::now_ms();
@@ -469,7 +470,7 @@ pub async fn refresh(
         endpoints::PATH_AVAILABLE_MODELS,
         token,
         device_id,
-        None,
+        proxy,
         "模型目录查询",
     )
     .await

@@ -120,7 +120,7 @@ pub async fn fetch_center(
         endpoints::PATH_TASK_CENTER,
         &credentials.bearer(),
         &credentials.device_id,
-        None,
+        credentials.proxy.as_ref(),
         "任务中心查询",
     )
     .await?;
@@ -299,7 +299,7 @@ async fn click_task(
         &credentials.bearer(),
         &credentials.device_id,
         &json!({ "task_id": task_id }),
-        None,
+        credentials.proxy.as_ref(),
         "任务登记",
     )
     .await?;
@@ -319,7 +319,7 @@ async fn complete_task(
         &credentials.bearer(),
         &credentials.device_id,
         &json!({ "task_id": task_id }),
-        None,
+        credentials.proxy.as_ref(),
         "任务结算",
     )
     .await?;

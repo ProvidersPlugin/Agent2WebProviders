@@ -9,6 +9,7 @@ mod json;
 mod logging;
 mod onboarding;
 mod providers;
+mod proxy;
 mod quota;
 mod store;
 

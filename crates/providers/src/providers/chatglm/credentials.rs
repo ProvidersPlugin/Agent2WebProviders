@@ -75,6 +75,7 @@ pub struct ChatglmCredentials {
     /// 展示名（昵称；best-effort）
     #[allow(dead_code)]
     pub nickname: String,
+    pub proxy: Option<agent2api_provider_protocol::WireProxy>,
 }
 
 impl ChatglmCredentials {
@@ -325,6 +326,7 @@ pub fn from_record(record: Option<&Value>) -> Result<ChatglmCredentials, Gateway
         is_guest,
         uid,
         nickname,
+        proxy: crate::proxy::account_proxy(record.get("proxy"))?,
     })
 }
 

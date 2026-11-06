@@ -19,7 +19,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use agent2api_provider_protocol as proto;
-use agent2api_provider_sdk::{PluginCtx, StoreAccount, StoreProxy};
+use agent2api_provider_sdk::{PluginCtx, StoreAccount};
 use serde_json::{json, Value};
 
 use crate::errors::GatewayError;
@@ -248,7 +248,7 @@ pub fn client_for(proxy: Option<&proto::WireProxy>, gateway: &str) -> Result<req
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(15));
     let url = proxy
-        .map(proto::WireProxy::to_url)
+        .map(crate::proxy::proxy_url)
         .unwrap_or_else(|| gateway.to_string());
     if !url.trim().is_empty() && url != "direct" {
         builder = builder.proxy(
@@ -263,21 +263,10 @@ pub fn client_for(proxy: Option<&proto::WireProxy>, gateway: &str) -> Result<req
 /// 账号记录里的代理 → 客户端。控制面（目录/额度/签到）没有 `req.proxy`，
 /// 只能读账号记录上的解析结果。
 pub fn record_client(record: &StoreAccount, gateway: &str) -> Result<reqwest::Client, String> {
-    match &record.proxy {
-        Some(StoreProxy::Resolved { proxy }) => client_for(Some(proxy), gateway),
-        Some(StoreProxy::Static { config }) if config["source"] == "direct" => {
-            client_for(None, "direct")
-        }
-        Some(StoreProxy::Static { config }) => {
-            let proxy: proto::WireProxy = serde_json::from_value(config.clone())
-                .map_err(|_| "Tabbit 账号代理格式无效".to_string())?;
-            client_for(Some(&proxy), gateway)
-        }
-        Some(StoreProxy::Failed { .. }) => {
-            Err("Tabbit 账号代理不可用，请重新选择".to_string())
-        }
-        Some(StoreProxy::Unset) | None => client_for(None, gateway),
-    }
+    let config = crate::proxy::account_config(record);
+    let proxy = crate::proxy::account_proxy(Some(&config)).map_err(|error| error.into_control_message())?;
+    let gateway = if config.get("source").and_then(Value::as_str) == Some("direct") { "direct" } else { gateway };
+    client_for(proxy.as_ref(), gateway)
 }
 
 fn base_headers(creds: &Credentials, realm: Realm, referer_path: &str) -> Vec<(String, String)> {

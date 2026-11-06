@@ -395,7 +395,7 @@ impl Provider for ChatglmProvider {
                     .into_control_message());
             }
             if credentials.is_guest {
-                let (access, refresh, uid) = http::guest_access(&credentials.device_id, None)
+                let (access, refresh, uid) = http::guest_access(&credentials.device_id, credentials.proxy.as_ref())
                     .await
                     .map_err(|error| {
                         GatewayError::with_status(
@@ -409,7 +409,7 @@ impl Provider for ChatglmProvider {
             }
             // 登录账号：refresh_token 续期（上游可能轮换 refresh_token，必须回写）
             let (access, rotated, uid) =
-                http::refresh_token(&credentials.refresh_token, &credentials.device_id, None)
+                http::refresh_token(&credentials.refresh_token, &credentials.device_id, credentials.proxy.as_ref())
                     .await
                     .map_err(|error| {
                         GatewayError::with_status(
@@ -484,7 +484,7 @@ impl Provider for ChatglmProvider {
                 Ok(credentials) => credentials,
                 Err(error) => return Ok(proto::RefreshOutcome::failed(error.message)),
             };
-            Ok(models::refresh(&credentials.bearer(), &credentials.device_id, force).await)
+            Ok(models::refresh(&credentials.bearer(), &credentials.device_id, credentials.proxy.as_ref(), force).await)
         })
     }
 

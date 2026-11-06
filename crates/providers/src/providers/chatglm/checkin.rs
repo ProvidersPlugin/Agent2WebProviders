@@ -93,7 +93,7 @@ pub async fn claim_daily_login_score(
         endpoints::PATH_SCORE_ACTIVITY_OPEN,
         &token,
         &credentials.device_id,
-        None,
+        credentials.proxy.as_ref(),
         "积分活动查询",
     )
     .await
@@ -114,7 +114,7 @@ pub async fn claim_daily_login_score(
         &token,
         &credentials.device_id,
         &json!({}),
-        None,
+        credentials.proxy.as_ref(),
         "每日登录积分领取",
     )
     .await
@@ -203,7 +203,7 @@ pub async fn claim_bonus(
         &token,
         device,
         &json!({}),
-        None,
+        credentials.proxy.as_ref(),
         "积分活动领取",
     )
     .await
@@ -253,7 +253,7 @@ pub async fn claim_bonus(
         endpoints::PATH_SUMMER_DAY_CLAIM_STATUS,
         &token,
         device,
-        None,
+        credentials.proxy.as_ref(),
         "季节活动状态查询",
     )
     .await
@@ -276,7 +276,7 @@ pub async fn claim_bonus(
             &token,
             device,
             &json!({}),
-            None,
+            credentials.proxy.as_ref(),
             "季节活动领取",
         )
         .await

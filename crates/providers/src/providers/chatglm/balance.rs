@@ -150,9 +150,10 @@ const SCORE_RECORD_LIMIT: i64 = 50;
 async fn fetch_score_records(
     token: &str,
     device_id: &str,
+    proxy: Option<&agent2api_provider_protocol::WireProxy>,
 ) -> Option<(Vec<Value>, bool)> {
     let path = format!("{}?page=1&page_size={SCORE_RECORD_LIMIT}", endpoints::PATH_SCORE_RECORD);
-    let payload = http::get_json(&path, token, device_id, None, "积分流水查询")
+    let payload = http::get_json(&path, token, device_id, proxy, "积分流水查询")
         .await
         .ok()?;
     let result = http::check_envelope(&payload, "积分流水查询").ok()?;
@@ -239,7 +240,7 @@ pub(super) async fn query(
         endpoints::PATH_MEMBER_INFO,
         &token,
         &credentials.device_id,
-        None,
+        credentials.proxy.as_ref(),
         "积分查询",
     )
     .await?;
@@ -276,7 +277,7 @@ pub(super) async fn query(
         endpoints::PATH_SCORE_ACTIVITY_STATUS,
         &token,
         &credentials.device_id,
-        None,
+        credentials.proxy.as_ref(),
         "积分活动查询",
     )
     .await
@@ -349,7 +350,7 @@ pub(super) async fn query(
     // ── 真实流水（「积分明细」点开那一屏的内容）───────────────────
     // best-effort：这是余额格的附赠读数，打不通就只少一屏明细，
     // 不该把整个余额查询拖成失败（主读数已经拿到了）。
-    let records = fetch_score_records(&token, &credentials.device_id).await;
+    let records = fetch_score_records(&token, &credentials.device_id, credentials.proxy.as_ref()).await;
     let (record_rows, records_has_more) = match records.as_ref() {
         Some((list, has_more)) => (
             list.iter().filter_map(record_row).collect::<Vec<Value>>(),

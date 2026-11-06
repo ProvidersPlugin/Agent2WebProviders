@@ -65,9 +65,17 @@ pub fn record_of(account: &StoreAccount) -> Value {
     if !originals.is_empty() {
         merged.insert("_agent2apiOriginalIdentity".to_string(), Value::Object(originals));
     }
-    let injected: Vec<&str> = ["id", "provider", "name"].into_iter()
+    let mut injected: Vec<&str> = ["id", "provider", "name"].into_iter()
         .filter(|key| account.secret.get(*key).is_none())
         .collect();
+    if account.proxy.is_some() {
+        if let Some(original) = account.secret.get("proxy") {
+            merged.insert("_agent2apiOriginalProxy".to_string(), original.clone());
+        } else {
+            injected.push("proxy");
+        }
+        merged.insert("proxy".to_string(), crate::proxy::account_config(account));
+    }
     merged.insert("_agent2apiRecordKeys".to_string(), serde_json::json!(injected));
     Value::Object(merged)
 }
@@ -93,6 +101,9 @@ pub fn secret_view(record: &Value) -> Value {
             for (key, value) in originals {
                 object.insert(key, value);
             }
+        }
+        if let Some(proxy) = object.remove("_agent2apiOriginalProxy") {
+            object.insert("proxy".to_string(), proxy);
         }
     }
     secret

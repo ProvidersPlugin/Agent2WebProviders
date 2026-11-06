@@ -15,7 +15,7 @@ fn cache() -> &'static Mutex<HashMap<String, reqwest::Client>> {
 
 pub fn client(proxy: Option<&proto::WireProxy>, gateway_proxy: &str) -> reqwest::Client {
     let key = match proxy {
-        Some(proxy) => proxy.to_url(),
+        Some(proxy) => crate::proxy::proxy_url(proxy),
         None => gateway_proxy.trim().to_string(),
     };
     if let Ok(guard) = cache().lock() {
@@ -41,10 +41,16 @@ fn build(proxy_url: &str) -> reqwest::Client {
     } else {
         match reqwest::Proxy::all(trimmed) {
             Ok(proxy) => builder = builder.proxy(proxy),
-            Err(_) => builder = builder.no_proxy(),
+            Err(_) => return unavailable_client(),
         }
     }
-    builder.build().unwrap_or_else(|_| reqwest::Client::new())
+    builder.build().unwrap_or_else(|_| unavailable_client())
+}
+
+fn unavailable_client() -> reqwest::Client {
+    let blocked = reqwest::Proxy::custom(|_: &url::Url| Some("http://127.0.0.1:0"));
+    reqwest::Client::builder().use_rustls_tls().no_proxy().proxy(blocked)
+        .timeout(CONTROL_TIMEOUT).build().unwrap_or_default()
 }
 
 pub struct ApiResponse {
