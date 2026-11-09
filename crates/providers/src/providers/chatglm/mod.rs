@@ -387,7 +387,7 @@ impl Provider for ChatglmProvider {
         ctx: &'a PluginCtx,
         account: &'a str,
     ) -> SendFuture<'a, String> {
-        Box::pin(async move {
+        Box::pin(crate::user_agent::scope(ctx, ID, account, async move {
             let record = crate::store::record(ctx, ID, account).await?;
             let credentials = credentials::from_record(Some(&record))?;
             if !credentials.is_guest && credentials.refresh_token.trim().is_empty() {
@@ -422,7 +422,7 @@ impl Provider for ChatglmProvider {
                     })?;
             save_tokens(ctx, account, &record, &access, &rotated, None, Some(&uid)).await
                 .map_err(GatewayError::into_control_message)
-        })
+        }))
     }
 
     /// 凭证是否临期：令牌有效期写在 JWT 的 `exp` 声明里 —— 直接读它，不靠猜。
@@ -467,7 +467,7 @@ impl Provider for ChatglmProvider {
         account: &'a str,
         force: bool,
     ) -> SendFuture<'a, proto::RefreshOutcome> {
-        Box::pin(async move {
+        Box::pin(crate::user_agent::scope(ctx, ID, account, async move {
             let record = match crate::store::record(ctx, ID, account).await {
                 Ok(record) => record,
                 Err(_) => {
@@ -485,7 +485,7 @@ impl Provider for ChatglmProvider {
                 Err(error) => return Ok(proto::RefreshOutcome::failed(error.message)),
             };
             Ok(models::refresh(&credentials.bearer(), &credentials.device_id, credentials.proxy.as_ref(), force).await)
-        })
+        }))
     }
 
     /// 查询积分余额（`balance.rs`）。
@@ -499,7 +499,7 @@ impl Provider for ChatglmProvider {
     /// 就被丢了 —— 于是前端把访客的「本来就没有积分」渲染成一格红色
     /// 「查询失败」。网关侧 `plugin_host::errors::control_error` 负责把它还原。
     fn usage<'a>(&'a self, ctx: &'a PluginCtx, account: &'a str) -> SendFuture<'a, Value> {
-        Box::pin(async move {
+        Box::pin(crate::user_agent::scope(ctx, ID, account, async move {
             let mut report = balance::query(ctx, account)
                 .await
                 .map_err(GatewayError::into_control_message)?;
@@ -508,7 +508,7 @@ impl Provider for ChatglmProvider {
                 object.insert("quotaSources".to_string(), Value::Array(sources));
             }
             Ok(report)
-        })
+        }))
     }
 
     /// 每日登录积分（本家的「签到」）。
@@ -531,7 +531,7 @@ impl Provider for ChatglmProvider {
         ctx: &'a PluginCtx,
         account: &'a str,
     ) -> SendFuture<'a, proto::CheckinReport> {
-        Box::pin(async move {
+        Box::pin(crate::user_agent::scope(ctx, ID, account, async move {
             if self.token_expiring(ctx, account).await? {
                 self.refresh_token(ctx, account).await?;
             } else {
@@ -593,7 +593,7 @@ impl Provider for ChatglmProvider {
                 });
             }
             Ok(report)
-        })
+        }))
     }
 
     /// 新手任务状态（任务中心的 `newbie` 分类）。
@@ -603,11 +603,11 @@ impl Provider for ChatglmProvider {
         account: &'a str,
         refresh: bool,
     ) -> SendFuture<'a, Value> {
-        Box::pin(async move {
+        Box::pin(crate::user_agent::scope(ctx, ID, account, async move {
             tasks::get_tasks(ctx, account, refresh)
                 .await
                 .map_err(GatewayError::into_message)
-        })
+        }))
     }
 
     /// 新手任务一键领取（逐条 click + complete）。
@@ -617,11 +617,11 @@ impl Provider for ChatglmProvider {
         account: &'a str,
         _claim: &'a str,
     ) -> SendFuture<'a, Value> {
-        Box::pin(async move {
+        Box::pin(crate::user_agent::scope(ctx, ID, account, async move {
             tasks::claim_all(ctx, account)
                 .await
                 .map_err(GatewayError::into_message)
-        })
+        }))
     }
 
     // ── 账号 ──────────────────────────────────────────────────
@@ -640,6 +640,19 @@ impl Provider for ChatglmProvider {
         input: proto::NormalizeInput,
     ) -> SendFuture<'a, proto::NormalizedAccount> {
         Box::pin(async move { normalize(input).await.map_err(GatewayError::into_message) })
+    }
+
+    fn admin_action<'a>(
+        &'a self,
+        _ctx: &'a PluginCtx,
+        _account: &'a str,
+        action: &'a str,
+        _payload: &'a Value,
+    ) -> SendFuture<'a, Value> {
+        Box::pin(async move {
+            if action == "network.user-agent" { Ok(serde_json::json!({ "accountWide": true })) }
+            else { Err(agent2api_provider_sdk::unsupported("该管理操作未实现")) }
+        })
     }
 
     fn account_view(&self, secret: &Value) -> Result<Value, String> {

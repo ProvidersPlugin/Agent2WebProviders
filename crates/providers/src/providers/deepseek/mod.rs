@@ -18,6 +18,7 @@ use agent2api_provider_protocol as proto;
 use agent2api_provider_sdk::{control_error, ConversationSink, PluginCtx, Provider, ProviderMeta, SendFuture};
 use futures::StreamExt;
 use serde_json::{json, Value};
+use crate::user_agent::AccountRequest;
 
 use response::{control as control_response, network_error};
 
@@ -67,13 +68,13 @@ fn headers(token: &str, cookie: &str, user_agent: &str) -> Vec<(String, String)>
 async fn post(client: &reqwest::Client, path: &str, headers: &[(String, String)], body: Value) -> Result<Value, String> {
     let mut request = client.post(format!("{BASE}{path}")).json(&body).timeout(Duration::from_secs(30));
     for (name, value) in headers { request = request.header(name, value); }
-    control_response(request.send().await.map_err(network_error)?, headers).await
+    control_response(request.with_account_user_agent().send().await.map_err(network_error)?, headers).await
 }
 
 async fn get(client: &reqwest::Client, path: &str, headers: &[(String, String)], query: &[(&str, &str)]) -> Result<Value, String> {
     let mut request = client.get(format!("{BASE}{path}")).query(query).timeout(Duration::from_secs(30));
     for (name, value) in headers { request = request.header(name, value); }
-    control_response(request.send().await.map_err(network_error)?, headers).await
+    control_response(request.with_account_user_agent().send().await.map_err(network_error)?, headers).await
 }
 
 async fn proof(client: &reqwest::Client, headers: &[(String, String)], path: &str) -> Result<String, String> {
@@ -104,7 +105,7 @@ async fn prepare_and_forward(ctx: &PluginCtx, req: proto::ConversationRequest, s
         "ref_file_ids": file_ids, "thinking_enabled": thinking, "search_enabled": false, "action": null, "preempt": false,
     })).header("x-ds-pow-response", proof).timeout(Duration::from_secs(600));
     for (name, value) in &headers { request = request.header(name, value); }
-    let response = request.header("Accept", "text/event-stream").send().await.map_err(|error| format!("DeepSeek 对话发送失败：{error}"))?;
+    let response = request.header("Accept", "text/event-stream").with_account_user_agent().send().await.map_err(|error| format!("DeepSeek 对话发送失败：{error}"))?;
     if !response.status().is_success() { return Err(control_error(i32::from(response.status().as_u16()), "DeepSeek 对话被上游拒绝，请检查账号与 Cookie", None, None)); }
     if !response.headers().get("content-type").and_then(|value| value.to_str().ok()).is_some_and(|mime| mime.contains("text/event-stream")) {
         return Err(control_error(403, "DeepSeek 网页要求重新登录或人机验证", None, None));
@@ -176,7 +177,9 @@ impl Provider for DeepseekWebProvider {
         Box::pin(async move {
             let mut sink = sink;
             let mut head_sent = false;
-            match prepare_and_forward(ctx, req, &mut sink, &mut head_sent).await {
+            let account = req.account.clone();
+            match crate::user_agent::scope(ctx, ID, &account,
+                prepare_and_forward(ctx, req, &mut sink, &mut head_sent)).await {
                 Ok(()) => Ok(()),
                 Err(error) => {
                     if head_sent { return Err(error); }
@@ -195,16 +198,16 @@ impl Provider for DeepseekWebProvider {
         Box::pin(async move { ctx.store_get(ID, account).await.map_err(|error| error.to_string())?.secret["accessToken"].as_str().map(str::to_string).ok_or_else(|| "DeepSeek 网页缺少令牌".into()) })
     }
     fn models<'a>(&'a self, ctx: &'a PluginCtx, account: &'a str) -> SendFuture<'a, proto::ModelList> {
-        Box::pin(async move {
+        Box::pin(crate::user_agent::scope(ctx, ID, account, async move {
             let record = ctx.store_get(ID, account).await.map_err(|_| "DeepSeek 网页账号不存在")?;
             let token = record.secret["accessToken"].as_str().filter(|token| !token.is_empty()).ok_or("DeepSeek 网页账号缺少访问令牌")?;
             let client = record_client(&record, &ctx.env.proxy)?;
             let headers = headers(token, record.secret["cookie"].as_str().unwrap_or(""), account::user_agent(&record.secret)?);
             Ok(models::load(&record.id, &client, &headers, false).await?.list)
-        })
+        }))
     }
     fn refresh_models<'a>(&'a self, ctx: &'a PluginCtx, account: &'a str, force: bool) -> SendFuture<'a, proto::RefreshOutcome> {
-        Box::pin(async move {
+        Box::pin(crate::user_agent::scope(ctx, ID, account, async move {
             let record = ctx.store_get(ID, account).await.map_err(|_| "DeepSeek 网页账号不存在")?;
             let token = record.secret["accessToken"].as_str().filter(|token| !token.is_empty()).ok_or("DeepSeek 网页账号缺少访问令牌")?;
             let client = record_client(&record, &ctx.env.proxy)?;
@@ -213,7 +216,7 @@ impl Provider for DeepseekWebProvider {
                 Ok(catalog) => Ok(proto::RefreshOutcome::refreshed(catalog.list.models.len())),
                 Err(error) => Ok(proto::RefreshOutcome::failed(error)),
             }
-        })
+        }))
     }
     fn classify(&self, status: u16, body: &Value) -> proto::ErrorClass {
         let message = body["message"].as_str().unwrap_or("DeepSeek 网页请求失败").to_string();
@@ -222,6 +225,7 @@ impl Provider for DeepseekWebProvider {
     }
     fn admin_action<'a>(&'a self, _ctx: &'a PluginCtx, _account: &'a str, action: &'a str, _payload: &'a Value) -> SendFuture<'a, Value> {
         Box::pin(async move {
+            if action == "network.user-agent" { return Ok(json!({ "accountWide": true })); }
             if action != "auth.methods" {
                 return Err(control_error(501, format!("DeepSeek 网页没有实现管理动作「{action}」"), None, None));
             }

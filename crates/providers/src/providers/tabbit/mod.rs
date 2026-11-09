@@ -243,12 +243,14 @@ impl Provider for TabbitProvider {
     ) -> SendFuture<'a, ()> {
         Box::pin(async move {
             let mut sink = sink;
-            prepare(ctx, req, self.realm, &mut sink).await
+            let account = req.account.clone();
+            crate::user_agent::scope(ctx, self.realm.id(), &account,
+                prepare(ctx, req, self.realm, &mut sink)).await
         })
     }
 
     fn models<'a>(&'a self, ctx: &'a PluginCtx, account: &'a str) -> SendFuture<'a, proto::ModelList> {
-        Box::pin(async move {
+        Box::pin(crate::user_agent::scope(ctx, self.realm.id(), account, async move {
             let record = ctx
                 .store_get(self.realm.id(), account)
                 .await
@@ -261,7 +263,7 @@ impl Provider for TabbitProvider {
                 Ok(catalog) => Ok(catalog.list),
                 Err(_) => Ok(models::fallback_catalog(self.realm).list),
             }
-        })
+        }))
     }
 
     fn refresh_models<'a>(
@@ -270,7 +272,7 @@ impl Provider for TabbitProvider {
         account: &'a str,
         force: bool,
     ) -> SendFuture<'a, proto::RefreshOutcome> {
-        Box::pin(async move {
+        Box::pin(crate::user_agent::scope(ctx, self.realm.id(), account, async move {
             let record = ctx
                 .store_get(self.realm.id(), account)
                 .await
@@ -283,11 +285,11 @@ impl Provider for TabbitProvider {
                 Ok(catalog) => Ok(proto::RefreshOutcome::refreshed(catalog.list.models.len())),
                 Err(error) => Ok(proto::RefreshOutcome::failed(error.message)),
             }
-        })
+        }))
     }
 
     fn usage<'a>(&'a self, ctx: &'a PluginCtx, account: &'a str) -> SendFuture<'a, proto::UsageReport> {
-        Box::pin(async move {
+        Box::pin(crate::user_agent::scope(ctx, self.realm.id(), account, async move {
             let record = ctx
                 .store_get(self.realm.id(), account)
                 .await
@@ -304,7 +306,7 @@ impl Provider for TabbitProvider {
                 object.insert("quotaSources".to_string(), Value::Array(sources));
             }
             Ok(report)
-        })
+        }))
     }
 
     fn checkin<'a>(
@@ -312,7 +314,7 @@ impl Provider for TabbitProvider {
         ctx: &'a PluginCtx,
         account: &'a str,
     ) -> SendFuture<'a, proto::CheckinReport> {
-        Box::pin(async move {
+        Box::pin(crate::user_agent::scope(ctx, self.realm.id(), account, async move {
             let record = ctx
                 .store_get(self.realm.id(), account)
                 .await
@@ -324,7 +326,7 @@ impl Provider for TabbitProvider {
             checkin::claim(&creds, self.realm, &http)
                 .await
                 .map_err(GatewayError::into_control_message)
-        })
+        }))
     }
 
     fn ensure_token<'a>(&'a self, ctx: &'a PluginCtx, account: &'a str) -> SendFuture<'a, String> {
@@ -412,6 +414,7 @@ impl Provider for TabbitProvider {
     ) -> SendFuture<'a, Value> {
         Box::pin(async move {
             match action {
+                "network.user-agent" => Ok(serde_json::json!({ "accountWide": true })),
                 "login.sms-send" => {
                     if self.realm != Realm::Cn {
                         return Err(control_message(

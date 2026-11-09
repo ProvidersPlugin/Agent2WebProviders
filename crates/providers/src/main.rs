@@ -12,6 +12,7 @@ mod providers;
 mod proxy;
 mod quota;
 mod store;
+mod user_agent;
 
 fn main() {
     agent2api_provider_sdk::serve_blocking(providers::registry());

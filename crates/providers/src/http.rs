@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use agent2api_provider_protocol as proto;
 use serde_json::Value;
+use crate::user_agent::AccountRequest;
 
 pub const CONTROL_TIMEOUT: Duration = Duration::from_secs(20);
 const DEFAULT_USER_AGENT: &str = "undici";
@@ -91,7 +92,7 @@ pub async fn send_raw(
     if let Some(timeout) = timeout_ms {
         builder = builder.timeout(Duration::from_millis(timeout));
     }
-    let response = builder.send().await?;
+    let response = builder.with_account_user_agent().send().await?;
     let status = response.status().as_u16();
     let ok = response.status().is_success();
     let text = response.text().await?;

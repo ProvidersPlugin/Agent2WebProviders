@@ -240,6 +240,8 @@ pub fn cookie_token(cookie: &str) -> String {
     cookie_map(cookie).get("token").cloned().unwrap_or_default()
 }
 
+use crate::user_agent::AccountRequest;
+
 // ─── HTTP 客户端 ──────────────────────────────────────────────
 
 pub fn client_for(proxy: Option<&proto::WireProxy>, gateway: &str) -> Result<reqwest::Client, String> {
@@ -345,7 +347,7 @@ async fn fetch_sign_key(
     for (name, value) in base_headers(creds, realm, "/") {
         request = request.header(name.as_str(), value.as_str());
     }
-    let response = request.send().await.map_err(|_| "Tabbit 签名 key 请求失败")?;
+    let response = request.with_account_user_agent().send().await.map_err(|_| "Tabbit 签名 key 请求失败")?;
     let status = response.status().as_u16();
     let text = response.text().await.unwrap_or_default();
     let key = text.trim();
@@ -411,7 +413,7 @@ async fn send(
         request = request.body(body.to_string());
     }
     let response = request
-        .send()
+        .with_account_user_agent().send()
         .await
         .map_err(|error| GatewayError::with_status(502, format!("Tabbit 请求失败：{error}")))?;
     let status = response.status().as_u16();
@@ -681,7 +683,7 @@ pub async fn open_join(
         }
         let response = request
             .body(body.to_string())
-            .send()
+            .with_account_user_agent().send()
             .await
             .map_err(|error| GatewayError::with_status(502, format!("无法连接 Tabbit：{error}")))?;
         let status = response.status().as_u16();

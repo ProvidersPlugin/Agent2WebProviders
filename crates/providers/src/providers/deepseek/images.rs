@@ -5,6 +5,7 @@ use agent2api_provider_protocol as proto;
 use base64::Engine;
 use futures::StreamExt;
 use serde_json::Value;
+use crate::user_agent::AccountRequest;
 
 const MAX_IMAGE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_TOTAL_BYTES: usize = 64 * 1024 * 1024;
@@ -77,7 +78,7 @@ async fn download(source: &str, proxy: Option<&proto::WireProxy>, gateway: &str)
     }
     let client = super::client_builder(proxy, gateway)?.resolve_to_addrs(&host, &addresses).build()
         .map_err(|_| "DeepSeek 图片下载客户端创建失败")?;
-    let response = client.get(url).timeout(Duration::from_secs(30)).send().await
+    let response = client.get(url).timeout(Duration::from_secs(30)).with_account_user_agent().send().await
         .map_err(|_| "DeepSeek 公网图片下载失败")?;
     if !response.status().is_success() { return Err("DeepSeek 图片下载被拒绝，重定向链接请改用 base64 图片".into()); }
     if response.content_length().is_some_and(|size| size > MAX_IMAGE_BYTES as u64) {
@@ -162,7 +163,7 @@ pub async fn upload(
         for (name, value) in headers {
             if !name.eq_ignore_ascii_case("content-type") { request = request.header(name, value); }
         }
-        let response = request.send().await.map_err(|_| "DeepSeek 图片上传失败")?;
+        let response = request.with_account_user_agent().send().await.map_err(|_| "DeepSeek 图片上传失败")?;
         let result = super::control_response(response, headers).await?;
         let file_id = result.pointer("/data/biz_data/id").and_then(Value::as_str)
             .filter(|id| !id.is_empty() && id.len() <= 256).ok_or("DeepSeek 图片上传未返回文件标识")?;
