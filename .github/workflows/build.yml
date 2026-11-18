@@ -2,47 +2,71 @@ name: release
 
 on:
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       version:
-        description: '要发布的版本号（不带 v，源码 tag 必须已存在）'
+        description: '仓库版本号；对应的源码 tag 必须已存在'
         required: true
         type: string
 
 permissions:
   contents: read
 
+concurrency:
+  group: wasm-web-batch-dispatch-${{ github.ref }}-${{ inputs.version }}
+  cancel-in-progress: false
+
 jobs:
   dispatch:
     runs-on: ubuntu-latest
     steps:
-      - name: 解析源码版本
+      - name: 解析仓库版本
         id: meta
+        shell: python
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
-          set -euo pipefail
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-          else
-            VERSION="$INPUT_VERSION"
-          fi
-          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]] || {
-            echo "::error::版本号不合法: $VERSION"
-            exit 1
-          }
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "ref=v$VERSION" >> "$GITHUB_OUTPUT"
+          import os, re
+          ref = os.environ['GITHUB_REF_NAME'] if os.environ['GITHUB_REF'].startswith('refs/tags/') else 'v' + os.environ['INPUT_VERSION']
+          if not re.fullmatch(r'v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?', ref):
+              raise ValueError('仓库 tag 格式无效')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'ref={ref}\nversion={ref[1:]}\n')
 
-      - name: 派发 Web 提供商构建
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ steps.meta.outputs.ref }}
+          persist-credentials: false
+
+      - name: 核对版本并固定源码与 SDK
+        id: source
+        shell: python
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          import json, os, pathlib, re, subprocess, tomllib
+          version = os.environ['VERSION']
+          package = tomllib.loads(pathlib.Path('Cargo.toml').read_text())['workspace']['package']
+          if package['version'] != version or json.loads(pathlib.Path('pack.json').read_text())['version'] != version:
+              raise ValueError('仓库 tag 与源码版本不一致')
+          if not list(pathlib.Path('wasm').glob('*/pack.json')):
+              raise ValueError('源码没有独立 WASM 包')
+          revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          sdk_tag = 'v' + version
+          lines = subprocess.check_output(['git', 'ls-remote', 'https://github.com/ProvidersPlugin/Agent2Providers',
+              f'refs/tags/{sdk_tag}', f'refs/tags/{sdk_tag}^{{}}'], text=True).splitlines()
+          refs = dict(line.split(maxsplit=1)[::-1] for line in lines)
+          sdk_sha = refs.get(f'refs/tags/{sdk_tag}^{{}}') or refs.get(f'refs/tags/{sdk_tag}', '')
+          if not re.fullmatch(r'[0-9a-f]{40}', sdk_sha):
+              raise ValueError('对应版本的 Agent2Providers SDK tag 尚未发布')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'sha={revision}\nsdk_sha={sdk_sha}\nsdk_ref={sdk_tag}\n')
+
+      - name: 派发网页独立 WASM 包批量构建
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.BUILDER_DISPATCH_TOKEN }}
           repository: Agent2Builder/agent2api-providers-releases
-          event-type: web-release
-          client-payload: '{"ref": "${{ steps.meta.outputs.ref }}", "version": "${{ steps.meta.outputs.version }}"}'
-
-      - name: 构建位置
-        run: printf '%s\n' 'https://github.com/Agent2Builder/agent2api-providers-releases/actions/workflows/web-release.yml'
+          event-type: wasm-batch-release
+          client-payload: '{"repository":"ProvidersPlugin/Agent2WebProviders","ref":"${{ steps.meta.outputs.ref }}","sha":"${{ steps.source.outputs.sha }}","version":"${{ steps.meta.outputs.version }}","sdk_sha":"${{ steps.source.outputs.sdk_sha }}","sdk_ref":"${{ steps.source.outputs.sdk_ref }}"}'

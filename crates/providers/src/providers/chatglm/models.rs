@@ -114,6 +114,10 @@ pub fn fallback_models() -> Vec<Value> {
                 "id": id,
                 "name": name,
                 "description": "",
+                "supportsToolCall": false,
+                "toolEmulation": { "protocol": "tagged_json_v1", "maxPromptChars": 190000 },
+                "supportsImages": false,
+                "inputModalities": ["text"],
                 "reasoningEfforts": default_efforts(),
                 "reasoningLevels": TIER_LABELS,
                 "reasoningDefaultLevel": TIER_LABELS[1],
@@ -219,6 +223,10 @@ fn default_level_of(levels: &[String]) -> Option<String> {
 /// 事实来源（`am_effort` / `display_name` 都在里面），替换成字符串会丢掉
 /// 强度档与本地化名，也会让按对象判能力的消费方误判为「未声明」。
 fn attach_levels(record: &mut Value, efforts: &Value) {
+    record["supportsToolCall"] = json!(false);
+    record["toolEmulation"] = json!({ "protocol": "tagged_json_v1", "maxPromptChars": 190000 });
+    record["supportsImages"] = json!(false);
+    record["inputModalities"] = json!(["text"]);
     let levels = levels_of_efforts(efforts);
     let default = default_level_of(&levels);
     if let Some(object) = record.as_object_mut() {
@@ -281,14 +289,11 @@ fn normalize_entry(entry: &Value) -> Value {
     // 新形状的标记：`id` 与 `reasoningEfforts` 都在 —— 那两个是首版都没有的键
     if entry.get("id").is_some() && entry.get("reasoningEfforts").is_some() {
         let mut record = entry.clone();
-        // 旧缓存没有档位表：补一份，免得升级后要等下一次目录刷新才看得到三档
-        if record.get("reasoningLevels").is_none() {
-            let efforts = record
-                .get("reasoningEfforts")
-                .cloned()
-                .unwrap_or(Value::Null);
-            attach_levels(&mut record, &efforts);
-        }
+        let efforts = record
+            .get("reasoningEfforts")
+            .cloned()
+            .unwrap_or(Value::Null);
+        attach_levels(&mut record, &efforts);
         return record;
     }
     let Some(id) = entry_model_name(entry) else {

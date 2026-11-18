@@ -74,6 +74,44 @@ const MARK_ASSISTANT: &str = "<|assistant|>";
 /// 单条消息拍平出来的最大字符数（防止把超长历史整段推给上游被拒）
 const MAX_FLAT_CHARS: usize = 200_000;
 
+pub fn validate(body: &Value) -> Result<(), String> {
+    let has_tools = ["tools", "functions"].iter().any(|key| {
+        body.get(*key).is_some_and(|value| {
+            !value.is_null() && !value.as_array().is_some_and(Vec::is_empty)
+        })
+    });
+    let choice = body.get("tool_choice").or_else(|| body.get("function_call"));
+    if has_tools && !choice.is_some_and(|choice| choice == "none")
+        || choice.is_some_and(|choice| !choice.is_null()
+            && !matches!(choice.as_str(), Some("auto" | "none")))
+    {
+        return Err(crate::errors::GatewayError::with_status(400,
+            "智谱清言网页没有原生工具调用接口，请移除 tools / functions 或使用支持工具调用的提供商")
+            .with_code("chatglm_tools_unsupported").into_control_message());
+    }
+    for message in read_messages(body) {
+        if matches!(message["role"].as_str(), Some("tool" | "function"))
+            || message.get("tool_call_id").is_some_and(|value| !value.is_null())
+            || message.get("function_call").is_some_and(|value| !value.is_null())
+            || message.get("tool_calls").is_some_and(|value| {
+                !value.is_null() && !value.as_array().is_some_and(Vec::is_empty)
+            })
+        {
+            return Err(crate::errors::GatewayError::with_status(400,
+                "智谱清言网页不接受工具调用历史或工具结果，未转成普通文字发送")
+                .with_code("chatglm_tools_unsupported").into_control_message());
+        }
+        if message["content"].as_array().is_some_and(|parts| parts.iter().any(|part| {
+            !part.is_string() && !part["type"].as_str().is_some_and(|kind| kind.eq_ignore_ascii_case("text"))
+        })) {
+            return Err(crate::errors::GatewayError::with_status(400,
+                "智谱清言网页当前只支持文本，未忽略图片或文件发送")
+                .with_code("chatglm_content_unsupported").into_control_message());
+        }
+    }
+    Ok(())
+}
+
 /// 把一条消息的 content 摊成纯文本（只取 text 块，其余类型丢弃）。
 ///
 /// 与 `protocol::content_text` 的差别：这里**只认 `text` 类型**，

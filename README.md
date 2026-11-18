@@ -15,10 +15,10 @@ The table describes the current implementation. It does not imply that every cap
 
 | Provider | LLM requests | Token auto-refresh | Model list | Balance query | Check-in | Claims |
 | --- | :--: | :--: | :--: | :--: | :--: | :--: |
-| Zhipu Qingyan | ✓ | ✓ | Online + fallback | Signed-in accounts | Signed-in accounts | Signed-in accounts |
-| DeepSeek Web | Text + image input; no tool calls | Undeclared | Online configuration + fallback | Undeclared | Undeclared | Undeclared |
-| Tabbit (China) | Text; no tool calls | ✗ (7-day JWT, re-import) | Online + fallback | Percentage | ✓ | — |
-| Tabbit (International) | Text; no tool calls | ✗ (7-day JWT, re-import) | Online + fallback | Percentage | ✓ | — |
+| Zhipu Qingyan | Text; gateway-emulated tools (not live-verified) | ✓ | Online + fallback | Signed-in accounts | Signed-in accounts | Signed-in accounts |
+| DeepSeek Web | Text + image input; gateway-emulated tools (not live-verified) | Undeclared | Online configuration + fallback | Undeclared | Undeclared | Undeclared |
+| Tabbit (China) | Text; gateway-emulated tools (not live-verified) | ✗ (7-day JWT, re-import) | Online + fallback | Percentage | ✓ | — |
+| Tabbit (International) | Text; gateway-emulated tools (not live-verified) | ✗ (7-day JWT, re-import) | Online + fallback | Percentage | ✓ | — |
 
 “Undeclared” means the capability has not been confirmed or integrated; it does not establish that the upstream service lacks it.
 
@@ -30,6 +30,7 @@ The table describes the current implementation. It does not imply that every cap
 - Guests can chat and obtain replacement credentials, but have no points, check-in or reward system.
 - Points queries, daily check-in, member rewards and task claims require a signed-in account.
 - Existing accounts retain the provider ID `chatglm`.
+- The updated gateway emulates text tools and their history/result round trips. This is not native web functionality and has not been live-verified.
 
 ### DeepSeek Web
 
@@ -37,7 +38,7 @@ The table describes the current implementation. It does not imply that every cap
 - Lists one model, `deepseek-web-flash` (display name: DeepSeek Web), using the current default mode from official account settings. Disabled Expert and Vision modes are not separate models.
 - Implements streamed text and reasoning, plus actual image uploads referenced through `ref_file_ids` after parsing succeeds.
 - Accepts PNG, JPEG, GIF and WebP as base64 data URLs or public HTTP(S) URLs. Local/private addresses and redirects are rejected; fetched images never receive account credentials.
-- Native tool calling is unavailable on the web endpoint. Prompt-based emulation has been removed; active `tools` and tool-history requests are rejected explicitly.
+- The web endpoint has no native tool-calling API. Models declare a text-tool contract for emulation and validation by the updated gateway; old gateways or disabled emulation still reject tool requests. Emulated tool calling has not been live-verified.
 - Paid API keys are not accepted. Human verification requires signing in manually on the official website.
 - Text, streaming, model settings and image shape/color/text recognition have been verified with a live account. Credential renewal, balances, check-in and claims remain undeclared.
 
@@ -46,7 +47,7 @@ The table describes the current implementation. It does not imply that every cap
 - Two providers: `tabbit` for `web.tabbit.com` (China) and `tabbit-intl` for `web.tabbit.ai` (international). Tokens and signing keys are not interchangeable between the two sites.
 - The China site supports phone + SMS-code login (recommended) as well as importing an existing web login state (token + user_id in the Cookie, or the DevTools Copy as cURL of a request). The international site has no reproducible web-auth callback, and phone login is still in upstream rollout, so only an existing login state can be imported.
 - The upstream uses the v3 room protocol: create session → join for SSE → post runs. Replies are translated from its events.
-- Text only. There is no native tool-calling contract: `tools` requests are rejected explicitly, and image input is not wired yet.
+- Text only, with tools emulated by the updated gateway rather than a native upstream API. Tool descriptions plus complete history are limited to 16,000 characters; oversized requests fail explicitly without truncating tool results. Image input is not wired, and tool emulation is not live-verified.
 - No refresh endpoint: the JWT lasts about 7 days; re-import it after expiry.
 - Quota is percentage-based (used %, member level, reset time). Daily check-in uses the real `daily_sign_in` endpoint.
 - `unlockPro` (default on) sends the "set as default browser" marker in `unique-uuid` to unlock Premium models. Turning it off may make Premium models return 492.

@@ -177,6 +177,7 @@ impl Provider for ChatglmProvider {
         req: proto::ChatRequest,
     ) -> SendFuture<'a, ChatPlan> {
         Box::pin(async move {
+            plan::validate(&req.body)?;
             let record = crate::store::record(ctx, ID, &req.account).await?;
             let credentials = credentials::from_record(Some(&record))?;
             let token = credentials.bearer();

@@ -1,0 +1,12 @@
+{
+  "abi": 1,
+  "verified": false,
+  "requires": [
+    "http.v1", "accounts.cas.v1", "clock.v1", "random.v1", "locks.v1",
+    "catalog.v1", "catalog.accounts.v1", "chat.stream.v1", "login.forms.v1", "checkin.rolling.v1",
+    "errors.v1", "state.v1", "login.desktop.chatglm.v1"
+  ],
+  "origins": ["https://chatglm.cn"],
+  "memory_mib": 64,
+  "concurrency": 8
+}

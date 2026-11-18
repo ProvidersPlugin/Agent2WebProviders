@@ -23,6 +23,7 @@ pub fn fallback() -> Vec<Value> {
     vec![json!({
         "id": MODEL_ID, "name": "DeepSeek 网页", "isDefault": true,
         "supportsImages": true, "supportsToolCall": false, "supportsReasoning": true,
+        "toolEmulation": { "protocol": "tagged_json_v1", "maxPromptChars": 200000 },
         "inputModalities": ["text", "image"], "synthetic": true,
     })]
 }
@@ -60,6 +61,7 @@ pub async fn load(account: &str, client: &reqwest::Client, headers: &[(String, S
             models: vec![json!({
                 "id": MODEL_ID, "name": "DeepSeek 网页", "isDefault": true,
                 "supportsImages": images, "supportsToolCall": false, "supportsReasoning": reasoning,
+                "toolEmulation": { "protocol": "tagged_json_v1", "maxPromptChars": 200000 },
                 "inputModalities": if images { vec!["text", "image"] } else { vec!["text"] },
                 "webModelType": mode, "synthetic": true,
             })],
