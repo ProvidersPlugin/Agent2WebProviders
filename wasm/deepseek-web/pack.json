@@ -2,14 +2,21 @@
   "id": "agent2api-wasm-deepseek-web",
   "name": "DeepSeek 网页",
   "description": "独立的 DeepSeek 网页提供商，保留网页令牌与桌面登录、模型目录、工作量证明、流式思考和受控图片上传。",
-  "version": "0.1.0-beta.2",
+  "version": "0.1.0-beta.3",
   "protocol": 1,
   "license": "AGPL-3.0-only",
   "provider_category": "web",
   "providers": [
-    { "id": "deepseek-web", "label": "DeepSeek 网页", "order": 1, "default_enabled": true }
+    {
+      "id": "deepseek-web",
+      "label": "DeepSeek 网页",
+      "order": 1,
+      "default_enabled": true
+    }
   ],
-  "entry": { "wasm32-unknown-unknown": "deepseek-web.wasm" },
+  "entry": {
+    "wasm32-unknown-unknown": "deepseek-web.wasm"
+  },
   "icons": "assets",
   "homepage": "https://github.com/ProvidersPlugin/Agent2WebProviders"
 }
