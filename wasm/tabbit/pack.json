@@ -2,14 +2,21 @@
   "id": "agent2api-wasm-tabbit",
   "name": "Tabbit 国内版",
   "description": "独立的 Tabbit 国内版网页提供商，支持手机验证码登录、Cookie / JWT 导入、流式文本对话、在线模型目录、百分比额度和每日签到。",
-  "version": "0.1.0-beta.2",
+  "version": "0.1.0-beta.3",
   "protocol": 1,
   "license": "AGPL-3.0-only",
   "provider_category": "web",
   "providers": [
-    { "id": "tabbit", "label": "Tabbit 国内版", "order": 2, "default_enabled": true }
+    {
+      "id": "tabbit",
+      "label": "Tabbit 国内版",
+      "order": 2,
+      "default_enabled": true
+    }
   ],
-  "entry": { "wasm32-unknown-unknown": "tabbit.wasm" },
+  "entry": {
+    "wasm32-unknown-unknown": "tabbit.wasm"
+  },
   "icons": "assets",
   "homepage": "https://github.com/ProvidersPlugin/Agent2WebProviders"
 }
