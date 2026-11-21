@@ -62,7 +62,10 @@ fn handle(method: &str, params: Value) -> Result<Value> {
         "account.identity" => Ok(json!(account::identity(&params["secret"]))),
         "token.ensure" => Ok(json!(account::ensure()?)),
         "token.refresh" => Ok(json!(account::refresh()?)),
-        "token.expiring" => Ok(json!(credentials::expiring(&sdk::account()?["secret"]))),
+        "token.expiring" => Ok(json!(credentials::expiring_within(
+            &sdk::account()?["secret"],
+            sdk::expiring_lead(&params, 0),
+        ))),
         "models.list" if params["account"].as_str().unwrap_or("").is_empty() => {
             Ok(models::fallback())
         }

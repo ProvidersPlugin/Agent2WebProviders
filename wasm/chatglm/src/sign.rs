@@ -73,7 +73,8 @@ pub fn headers(token: &str, device: &str, accept: &str) -> Result<Value> {
         "X-Device-Id": device, "X-App-Platform": "pc", "X-App-Version": "2.0.7",
         "X-Timestamp": timestamp, "X-Nonce": nonce, "X-Sign": signature,
         "Origin": crate::endpoints::ORIGIN, "Referer": format!("{}/", crate::endpoints::ORIGIN),
-        "User-Agent": "undici", "Accept": accept });
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+        "Accept": accept });
     if !token.trim().is_empty() {
         result["Authorization"] = json!(format!("Bearer {}", token.trim()));
     }

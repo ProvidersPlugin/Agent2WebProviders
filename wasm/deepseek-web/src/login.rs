@@ -30,34 +30,34 @@ struct Text {
 fn text(locale: &str) -> Text {
     match locale {
         "en" => Text {
-            browser: "Sign in on the website", browser_note: "Sign in to the official DeepSeek site in the desktop app's separate embedded window. Login credentials are captured from this window only; web and mobile panels should paste a web token or credential JSON. This does not read your system browser or local client files.",
-            manual: "Paste a web access token", manual_note: "After signing in to chat.deepseek.com, copy userToken.value from Application → Local Storage. You may paste the entire userToken object or credential JSON in the credential field. Cookie and browser user-agent are optional. This is not a paid API key. Expired login or human verification must be resolved on the official website; tokens are not automatically renewed.",
-            token: "Web access token", cookie: "Website Cookie", agent: "Browser user-agent", name: "Account name", optional: "Optional", credential: "Credential JSON (optional)", waiting: "Waiting for sign-in on the official DeepSeek website.", start: "Finish signing in within 5 minutes. Complete verification on DeepSeek's official page; the desktop window captures its token and Cookie automatically.",
+            browser: "Sign in on the website", browser_note: "Sign in to DeepSeek in the desktop window to add the account automatically; web and mobile panels can paste a web token or credential JSON.",
+            manual: "Paste a web access token", manual_note: "Paste userToken.value from chat.deepseek.com (Application → Local Storage) or a credential JSON to add the account.",
+            token: "Web access token", cookie: "Website Cookie", agent: "Browser user-agent", name: "Account name", optional: "Optional", credential: "Credential JSON (optional)", waiting: "Waiting for sign-in on the official DeepSeek website.", start: "Complete sign-in on the official DeepSeek page; the desktop window will capture the credentials automatically.",
         },
         "zh-Hant" => Text {
-            browser: "網頁登入", browser_note: "在桌面應用的獨立內嵌視窗登入 DeepSeek 官方網站，只讀取該視窗的登入態；網頁與手機面板請貼上網頁令牌或憑證 JSON。不讀取系統瀏覽器或本機客戶端檔案。",
-            manual: "貼上網頁訪問令牌", manual_note: "登入 chat.deepseek.com 後，在 Application → Local Storage 複製 userToken.value，也可在憑證欄貼上完整 userToken 或憑證 JSON。Cookie 與瀏覽器標識可選。這裡不接受付費 API Key；登入過期或人機驗證需回官方網站處理，不會自動換證。",
-            token: "網頁訪問令牌", cookie: "網頁 Cookie", agent: "瀏覽器標識", name: "備註名稱", optional: "可選", credential: "憑證 JSON（可選）", waiting: "等待在 DeepSeek 官方頁面完成登入。", start: "請在 5 分鐘內完成 DeepSeek 官方網頁登入；驗證碼在官方頁面手動完成，桌面視窗會自動讀取令牌與 Cookie。",
+            browser: "網頁登入", browser_note: "在桌面視窗登入 DeepSeek 官網即可自動新增帳號；網頁與手機面板可貼上網頁令牌或憑證 JSON。",
+            manual: "貼上網頁訪問令牌", manual_note: "在 chat.deepseek.com 登入後，從 Application → Local Storage 複製 userToken.value 或貼上憑證 JSON 即可新增帳號。",
+            token: "網頁訪問令牌", cookie: "網頁 Cookie", agent: "瀏覽器標識", name: "備註名稱", optional: "可選", credential: "憑證 JSON（可選）", waiting: "等待在 DeepSeek 官方頁面完成登入。", start: "請在 DeepSeek 官方頁面完成登入，桌面視窗會自動讀取並保存帳號。",
         },
         "ja" => Text {
-            browser: "Web サイトでログイン", browser_note: "デスクトップアプリの独立した埋め込みウィンドウで DeepSeek 公式サイトにログインします。このウィンドウの認証情報だけを取得します。Web・モバイル画面では Web トークンか認証 JSON を貼り付けてください。システムブラウザーやクライアントのファイルは読み取りません。",
-            manual: "Web アクセストークンを貼り付け", manual_note: "chat.deepseek.com にログイン後、Application → Local Storage の userToken.value をコピーします。認証欄には userToken 全体または認証 JSON も貼り付けられます。Cookie とブラウザー識別は任意です。有料 API キーではありません。期限切れや本人確認は公式サイトで対応し、自動更新は行いません。",
-            token: "Web アクセストークン", cookie: "Web Cookie", agent: "ブラウザー識別", name: "アカウント名", optional: "任意", credential: "認証 JSON（任意）", waiting: "DeepSeek 公式ページでのログインを待っています。", start: "5 分以内に公式ページでログインしてください。確認操作は公式ページで行い、デスクトップウィンドウがトークンと Cookie を取得します。",
+            browser: "Web サイトでログイン", browser_note: "デスクトップの画面で DeepSeek 公式サイトにログインすると自動でアカウントを追加します。Web・モバイルでは Web トークンまたは認証 JSON を貼り付けてください。",
+            manual: "Web アクセストークンを貼り付け", manual_note: "chat.deepseek.com にログイン後、Application → Local Storage の userToken.value または認証 JSON を貼り付けてアカウントを追加できます。",
+            token: "Web アクセストークン", cookie: "Web Cookie", agent: "ブラウザー識別", name: "アカウント名", optional: "任意", credential: "認証 JSON（任意）", waiting: "DeepSeek 公式ページでのログインを待っています。", start: "DeepSeek の公式ページでログインしてください。デスクトップ画面が自動で認証情報を取得します。",
         },
         "ko" => Text {
-            browser: "웹사이트 로그인", browser_note: "데스크톱 앱의 별도 내장 창에서 DeepSeek 공식 사이트에 로그인하세요. 이 창의 로그인 정보만 읽습니다. 웹·모바일 관리 화면에서는 웹 토큰이나 자격 증명 JSON을 붙여넣으세요. 시스템 브라우저나 로컬 클라이언트 파일은 읽지 않습니다.",
-            manual: "웹 접근 토큰 붙여넣기", manual_note: "chat.deepseek.com에 로그인한 뒤 Application → Local Storage에서 userToken.value를 복사하세요. 자격 증명 칸에는 전체 userToken 또는 JSON도 넣을 수 있습니다. Cookie와 브라우저 식별 정보는 선택 사항입니다. 유료 API 키가 아닙니다. 만료나 사람 확인은 공식 사이트에서 처리해야 하며 자동 갱신하지 않습니다.",
-            token: "웹 접근 토큰", cookie: "웹 Cookie", agent: "브라우저 식별 정보", name: "계정 이름", optional: "선택 사항", credential: "자격 증명 JSON(선택)", waiting: "DeepSeek 공식 페이지에서 로그인을 기다리는 중입니다.", start: "5분 안에 공식 페이지에서 로그인을 완료하세요. 인증은 공식 페이지에서 직접 처리하며 데스크톱 창이 토큰과 Cookie를 가져옵니다.",
+            browser: "웹사이트 로그인", browser_note: "데스크톱 창에서 DeepSeek 공식 사이트에 로그인하면 계정이 자동 추가됩니다. 웹·모바일에서는 웹 토큰이나 자격 증명 JSON을 붙여넣으세요.",
+            manual: "웹 접근 토큰 붙여넣기", manual_note: "chat.deepseek.com에 로그인한 뒤 Application → Local Storage의 userToken.value 또는 자격 증명 JSON을 붙여넣어 계정을 추가할 수 있습니다.",
+            token: "웹 접근 토큰", cookie: "웹 Cookie", agent: "브라우저 식별 정보", name: "계정 이름", optional: "선택 사항", credential: "자격 증명 JSON(선택)", waiting: "DeepSeek 공식 페이지에서 로그인을 기다리는 중입니다.", start: "DeepSeek 공식 페이지에서 로그인을 완료하면 데스크톱 창이 자동으로 계정을 저장합니다.",
         },
         "pt-BR" => Text {
-            browser: "Entrar pelo site", browser_note: "Entre no site oficial do DeepSeek na janela separada do aplicativo desktop. Apenas as credenciais dessa janela são lidas. Nos painéis web e móvel, cole um token web ou JSON de credenciais. Não lê o navegador do sistema nem arquivos do cliente local.",
-            manual: "Colar token de acesso web", manual_note: "Após entrar em chat.deepseek.com, copie userToken.value em Application → Local Storage. O campo de credenciais também aceita o objeto userToken completo ou JSON de credenciais. Cookie e identificação do navegador são opcionais. Não é uma chave de API paga. Expiração ou verificação humana exige voltar ao site oficial; não há renovação automática.",
-            token: "Token de acesso web", cookie: "Cookie do site", agent: "Identificação do navegador", name: "Nome da conta", optional: "Opcional", credential: "JSON de credenciais (opcional)", waiting: "Aguardando login no site oficial do DeepSeek.", start: "Conclua o login em 5 minutos. Faça a verificação na página oficial; a janela desktop captura o token e o Cookie automaticamente.",
+            browser: "Entrar pelo site", browser_note: "Entre no site oficial do DeepSeek na janela desktop para adicionar a conta automaticamente; nos painéis web e móvel, cole um token web ou JSON de credenciais.",
+            manual: "Colar token de acesso web", manual_note: "Após entrar em chat.deepseek.com, cole o userToken.value (de Application → Local Storage) ou um JSON de credenciais para adicionar a conta.",
+            token: "Token de acesso web", cookie: "Cookie do site", agent: "Identificação do navegador", name: "Nome da conta", optional: "Opcional", credential: "JSON de credenciais (opcional)", waiting: "Aguardando login no site oficial do DeepSeek.", start: "Conclua o login na página oficial do DeepSeek; a janela desktop capturará as credenciais automaticamente.",
         },
         _ => Text {
-            browser: "网页登录", browser_note: "在桌面应用的独立内嵌窗口登录 DeepSeek 官网，只读取该窗口的登录态；网页和手机面板请粘贴网页令牌或凭证 JSON。不读取系统浏览器或本机客户端文件。",
-            manual: "粘贴网页访问令牌", manual_note: "登录 chat.deepseek.com 后，在 Application → Local Storage 复制 userToken.value，也可在凭证栏粘贴完整 userToken 或凭证 JSON。Cookie 和浏览器标识可选。这里不接受收费 API Key；登录过期或人机验证需回官方网页处理，不会自动换证。",
-            token: "网页访问令牌", cookie: "网页 Cookie", agent: "浏览器标识", name: "备注名", optional: "可选", credential: "凭证 JSON（可选）", waiting: "等待在 DeepSeek 官方页面完成登录。", start: "请在 5 分钟内完成 DeepSeek 官方网页登录；验证码在官方页面手动完成，桌面窗口会自动读取令牌与 Cookie。",
+            browser: "网页登录", browser_note: "在桌面窗口登录 DeepSeek 官网即可自动添加账号；网页和手机面板可粘贴网页令牌或凭证 JSON。",
+            manual: "粘贴网页访问令牌", manual_note: "在 chat.deepseek.com 登录后，从 Application → Local Storage 复制 userToken.value 或粘贴凭证 JSON 即可添加账号。",
+            token: "网页访问令牌", cookie: "网页 Cookie", agent: "浏览器标识", name: "备注名", optional: "可选", credential: "凭证 JSON（可选）", waiting: "等待在 DeepSeek 官方页面完成登录。", start: "请在 DeepSeek 官方页面完成登录，桌面窗口会自动读取并保存账号。",
         },
     }
 }

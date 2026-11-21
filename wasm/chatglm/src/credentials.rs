@@ -71,10 +71,15 @@ pub fn expires(token: &str) -> Option<i64> {
         .map(|value| value.saturating_mul(1000))
 }
 
-pub fn expiring(secret: &Value) -> bool {
+pub fn expiring_within(secret: &Value, min_lead_ms: i64) -> bool {
+    let lead = 3_600_000_i64.max(min_lead_ms.max(0));
     (is_guest(secret) || !refresh(secret).is_empty())
         && expires(&access(secret))
-            .is_some_and(|expiry| expiry.saturating_sub(3_600_000) <= sdk::now())
+            .is_some_and(|expiry| expiry.saturating_sub(lead) <= sdk::now())
+}
+
+pub fn expiring(secret: &Value) -> bool {
+    expiring_within(secret, 0)
 }
 
 pub fn device(secret: &Value) -> Result<String> {
