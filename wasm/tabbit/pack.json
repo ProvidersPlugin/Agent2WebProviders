@@ -2,7 +2,7 @@
   "id": "agent2api-wasm-tabbit",
   "name": "Tabbit 国内版",
   "description": "提供国内版流式对话与在线模型目录，支持手机验证码登录与凭据导入，可查看百分比额度并每日签到。",
-  "version": "0.1.0-beta.3",
+  "version": "0.1.0-beta.4",
   "protocol": 1,
   "license": "AGPL-3.0-only",
   "provider_category": "web",
