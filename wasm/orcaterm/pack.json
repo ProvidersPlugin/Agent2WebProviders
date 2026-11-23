@@ -2,7 +2,7 @@
   "id": "agent2api-wasm-orcaterm",
   "name": "OrcaTerm",
   "description": "提供图文对话与工具调用，支持微信授权、凭据及本机账号导入与自动续期，可查动态模型目录与剩余额度。",
-  "version": "0.1.0-beta.3",
+  "version": "0.1.0",
   "protocol": 1,
   "license": "AGPL-3.0-only",
   "provider_category": "web",

@@ -2,7 +2,7 @@
   "id": "agent2api-wasm-tabbit-intl",
   "name": "Tabbit 国际版",
   "description": "提供国际版流式对话与账号模型目录，支持凭据与 Cookie 导入及可选工具调用，可查百分比额度和每日签到。",
-  "version": "0.1.0-beta.4",
+  "version": "0.1.0",
   "protocol": 1,
   "license": "AGPL-3.0-only",
   "provider_category": "web",
