@@ -46,7 +46,8 @@ pub(crate) fn now() -> Result<i64> {
 }
 
 fn metadata(site: Site) -> Value {
-    json!({
+    use sdk::error_rules::{attach, class, rule};
+    let meta = json!({
         "id": site.id, "label": site.label, "order": site.order,
         "capabilities": {
             "chat": true, "stateful": true, "refresh": false, "model_refresh": true,
@@ -70,7 +71,19 @@ fn metadata(site: Site) -> Value {
         "checkin": { "description": "Tabbit 每日签到（以当前开放活动为准）；额度按百分比计，奖励以实际返回为准",
             "daily": true, "modes": ["checkin"] },
         "default_models": models::fallback(site)["models"]
-    })
+    });
+    attach(
+        meta,
+        vec![
+            class("auth", &[401, 403], &[]),
+            class("quota", &[492], &["492"]),
+            class("rate_limit", &[409, 429], &["409"]),
+        ],
+        vec![
+            rule("tabbit_busy_409", "会话处理中（409）", "当前账号存在进行中的会话时，短冷却并切换其他可用账号。", "rate_limit", &[409], "", "switch_account", "fixed", 15, true, 120, "account"),
+            rule("tabbit_premium_492", "需要会员或今日额度耗尽（492）", "免费账号无权访问会员模型或今日额度用尽时，冷却该账号并切换其他账号。", "quota", &[492], "", "switch_account", "fixed", 1800, true, 21600, "model"),
+        ],
+    )
 }
 
 /// 国内短信在尚未有账号时复用同一指纹算法，不用伪造凭证读取账号。

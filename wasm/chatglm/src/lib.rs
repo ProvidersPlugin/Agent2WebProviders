@@ -26,7 +26,8 @@ use agent2api_wasm_sdk::{self as sdk, json, AccountLock, Error, Result, Value};
 sdk::export_provider!(handle);
 
 fn metadata() -> Value {
-    json!({ "id": "chatglm", "label": "智谱清言", "order": 0,
+    use sdk::error_rules::{attach, class};
+    let meta = json!({ "id": "chatglm", "label": "智谱清言", "order": 0,
         "capabilities": { "chat": true, "stateful": false, "refresh": true, "model_refresh": true,
             "usage": true, "checkin": true, "claims": true, "web_login": false,
             "anonymous_default_session": false, "refresh_uses_account": true, "env_credentials": false,
@@ -42,7 +43,16 @@ fn metadata() -> Value {
         "account_features": { "usage": true, "credit_detail": true, "identifier": ["uid"], "long_lived": true },
         "checkin": { "description": "每日登录积分、会员活动与每日任务；访客账号跳过", "daily": true, "modes": ["checkin"],
             "exclude_guest": true, "onboarding": true },
-        "default_models": models::fallback()["models"] })
+        "default_models": models::fallback()["models"] });
+    attach(
+        meta,
+        vec![
+            class("quota", &[429], &["-1001"]),
+            class("auth", &[401, 403], &["40003", "40103"]),
+            class("bad_request", &[400], &["40013", "40014", "40001", "40004"]),
+        ],
+        vec![],
+    )
 }
 
 fn handle(method: &str, params: Value) -> Result<Value> {

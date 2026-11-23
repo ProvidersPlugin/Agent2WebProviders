@@ -80,15 +80,26 @@ fn draw(session: &Session, raw: &Value) -> Result<Value> {
 
 fn season(session: &Session) -> Result<Value> {
     session.check_current()?;
-    let raw = network::json(
+    let raw = match network::json(
         "GET",
         endpoints::SEASON_STATUS,
         &session.token,
         &session.device,
         None,
-    )
-    .map_err(|error| result::action_error(error, "季节活动状态查询"))?;
-    let value = result::envelope(&raw, &[0, 200], &session.token)?;
+    ) {
+        Ok(value) => value,
+        Err(error) if error.status != Some(401) && (result::rejected(&error) || matches!(error.status, Some(404 | 410))) => {
+            return Ok(bonus_entry("inactive", &format!("季节活动未开启：{}", error.message), Value::Null));
+        }
+        Err(error) => return Err(result::action_error(error, "季节活动状态查询")),
+    };
+    let value = match result::envelope(&raw, &[0, 200], &session.token) {
+        Ok(value) => value,
+        Err(error) if error.status != Some(401) && result::rejected(&error) => {
+            return Ok(bonus_entry("inactive", &format!("季节活动未开启：{}", error.message), Value::Null));
+        }
+        Err(error) => return Err(error),
+    };
     session.check_current()?;
     let claimed = value["claimed"].as_bool();
     let claimable = value["claimable"].as_bool();
@@ -110,7 +121,7 @@ fn season(session: &Session) -> Result<Value> {
     }
     // 只有明确可领才能发送；仅 claimed=false 不能证明当前有活动可领。
     if claimable == Some(true) {
-        memory::once(session, "season-summer", true, || {
+        let attempt = memory::once(session, "season-summer", true, || {
             let raw = session
                 .raw_post(endpoints::SEASON_CLAIM, &json!({}))
                 .map_err(|error| result::action_error(error, "季节活动领取"))?;
@@ -120,7 +131,16 @@ fn season(session: &Session) -> Result<Value> {
                 "季节活动已领取（上游业务状态确认，奖励金额未知）",
                 Value::Null,
             ))
-        })
+        });
+        match attempt {
+            Ok(value) => Ok(value),
+            Err(error) if error.status != Some(401) && result::rejected(&error) => Ok(bonus_entry(
+                "inactive",
+                &format!("季节活动当前不可领取：{}", error.message),
+                Value::Null,
+            )),
+            Err(error) => Err(error),
+        }
     } else if claimable == Some(false) {
         Ok(bonus_entry("inactive", "季节活动当前不可领取", Value::Null))
     } else {
@@ -140,6 +160,15 @@ pub fn bonus(session: &Session) -> Result<Value> {
         draw(session, &raw)
     })
     .map_err(|error| result::action_error(error, "积分活动领取"));
+    let first = match first {
+        Ok(value) => Ok(value),
+        Err(error) if error.status != Some(401) && result::rejected(&error) => Ok(bonus_entry(
+            "inactive",
+            &format!("积分活动当前不可领取：{}", error.message),
+            Value::Null,
+        )),
+        Err(error) => Err(error),
+    };
     let stop = first.as_ref().err().is_some_and(|error| {
         error.status == Some(401)
             || error.code.as_deref() == Some("chatglm_account_conflict")
@@ -210,6 +239,7 @@ pub fn claim() -> Result<Value> {
         }
     };
     let original = result.clone();
+    let daily_ok = matches!(original["outcome"].as_str(), Some("claimed" | "done"));
     // 与原生版顺序一致：登录积分 → 会员/季节活动 → 每日任务。
     let bonus = bonus(&session);
     let daily = tasks::daily(&session);
@@ -218,13 +248,17 @@ pub fn claim() -> Result<Value> {
     let mut incomplete = false;
     match bonus {
         Ok(value) => {
-            incomplete |= value["failed"].as_u64().is_some_and(|count| count > 0)
-                || value["unconfirmed"].as_u64().is_some_and(|count| count > 0);
+            if !daily_ok {
+                incomplete |= value["failed"].as_u64().is_some_and(|count| count > 0)
+                    || value["unconfirmed"].as_u64().is_some_and(|count| count > 0);
+            }
             notes.push(format!("活动领取：{}", errors::text(&value, &["msg"])));
             details["bonus"] = value;
         }
         Err(error) => {
-            incomplete = true;
+            if !daily_ok || error.status == Some(401) || error.code.as_deref() == Some("chatglm_account_conflict") {
+                incomplete = true;
+            }
             notes.push(format!("活动领取结果未确认：{}", error.message));
             details["bonus"] = result::failure(&error);
         }

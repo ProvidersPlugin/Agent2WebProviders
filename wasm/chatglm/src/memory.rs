@@ -22,7 +22,7 @@ pub fn put(key: &str, value: Value) -> Result<()> {
 }
 
 /// 写动作先登记在途状态；取消、超时或未知响应不会在下一次调用中盲目补发。
-/// 每日动作跨日只放行此前已确认的结果；旧在途记录必须由真实状态澄清，不能随零点清空。
+/// 每日动作跨日放行已确认、已拒绝或前日遗留未确认；同日在途记录仍不盲目重发。
 pub fn once(
     session: &crate::account::Session,
     action: &str,
@@ -57,6 +57,7 @@ pub fn once(
             return Err(invalid("动作记忆与当前账号或日期不一致，未重复提交"));
         }
         match value["state"].as_str() {
+            Some("pending") if daily && value["day"] != day => {}
             Some("pending") => return Err(invalid("此前动作已经提交但结果未确认，未自动重复提交")),
             Some("confirmed") if value["day"] == day => {
                 session.check_current()?;
@@ -90,7 +91,7 @@ pub fn once(
         Ok(value) => ("confirmed", value.clone()),
         Err(error)
             if error.code.as_deref() == Some("chatglm_action_rejected")
-                || crate::claim_result::rejected(error) && error.status == Some(401) =>
+                || crate::claim_result::rejected(error) =>
         {
             ("rejected", Value::Null)
         }

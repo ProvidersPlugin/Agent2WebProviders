@@ -28,7 +28,8 @@ const BASE: &str = "https://chat.deepseek.com";
 sdk::export_provider!(handle);
 
 fn metadata() -> Value {
-    json!({ "id": ID, "label": "DeepSeek 网页", "order": 1,
+    use sdk::error_rules::{attach, class, rule};
+    let meta = json!({ "id": ID, "label": "DeepSeek 网页", "order": 1,
         "capabilities": { "chat": true, "stateful": true, "web_login": true, "model_refresh": true,
             "refresh": false, "usage": false, "checkin": false, "claims": false,
             "anonymous_default_session": false, "env_credentials": false,
@@ -44,7 +45,19 @@ fn metadata() -> Value {
                 ] }
         ],
         "account_features": { "identifier": ["uid"], "concurrency": true, "concurrency_default": 1 },
-        "default_models": models::fallback()["models"] })
+        "default_models": models::fallback()["models"] });
+    attach(
+        meta,
+        vec![
+            class("auth", &[401, 403], &["40001", "40002", "40003", "40303"]),
+            class("rate_limit", &[429], &["40029", "5"]),
+            class("content", &[], &["deepseek_content_blocked"]),
+        ],
+        vec![
+            rule("ds_challenge", "网页人机验证（40303）", "网页要求完成人机验证时，冷却该账号并立即切换其他可用账号。", "auth", &[403], "40303", "switch_account", "fixed", 1800, true, 7200, "account"),
+            rule("ds_muted", "账号暂时被禁言（5）", "网页账号处于临时禁言期间时按上游解除时间冷却并切换账号。", "rate_limit", &[429], "5", "switch_account", "upstream", 600, true, 7200, "account"),
+        ],
+    )
 }
 
 fn handle(method: &str, params: Value) -> Result<Value> {

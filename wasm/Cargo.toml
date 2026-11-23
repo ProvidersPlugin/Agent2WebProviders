@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["tabbit-common", "tabbit-intl", "tabbit", "chatglm", "deepseek-web"]
+members = ["tabbit-common", "tabbit-intl", "tabbit", "chatglm", "deepseek-web", "orcaterm"]
 
 [profile.release]
 opt-level = "s"

@@ -1,7 +1,7 @@
 {
   "id": "agent2api-wasm-chatglm",
   "name": "智谱清言",
-  "description": "独立的智谱清言网页提供商，支持显式访客、令牌导入、自动续期、流式对话、模型目录与登录账号积分和签到任务。",
+  "description": "提供流式对话与模型目录查询，支持桌面登录、访客模式与令牌导入及自动续期，可查积分、签到和领任务奖励。",
   "version": "0.1.0-beta.3",
   "protocol": 1,
   "license": "AGPL-3.0-only",

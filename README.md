@@ -3,7 +3,7 @@
 **English** · [简体中文](README.zh-CN.md)
 
 **Web Providers** (网页提供商) is the official web-provider plugin for [Agent2API](https://github.com/aimod-cc/Agent2API).
-It connects Zhipu Qingyan, DeepSeek Web and Tabbit accounts to the gateway's unified model API.
+It connects Zhipu Qingyan, DeepSeek Web, Tabbit and OrcaTerm accounts to the gateway's unified model API.
 The gateway runs the plugin as a separate process and manages its accounts, routing and usage reports.
 
 Provider capabilities depend on the account and the integration. This plugin uses web-account credentials, not the providers' paid API keys.
@@ -19,6 +19,7 @@ The table describes the current implementation. It does not imply that every cap
 | DeepSeek Web | Text + image input; gateway-emulated tools (not live-verified) | Undeclared | Online configuration + fallback | Undeclared | Undeclared | Undeclared |
 | Tabbit (China) | Text; gateway-emulated tools (not live-verified) | ✗ (7-day JWT, re-import) | Online + fallback | Percentage | ✓ | — |
 | Tabbit (International) | Text; gateway-emulated tools (not live-verified) | ✗ (7-day JWT, re-import) | Online + fallback | Percentage | ✓ | — |
+| OrcaTerm | Text, image input & reasoning; gateway-emulated tools (not WASM live-verified) | Implemented; unverified | Online configuration + fallback | Implemented; unverified (AI assistant quota count) | Undeclared | Undeclared |
 
 “Undeclared” means the capability has not been confirmed or integrated; it does not establish that the upstream service lacks it.
 
@@ -51,6 +52,14 @@ The table describes the current implementation. It does not imply that every cap
 - No refresh endpoint: the JWT lasts about 7 days; re-import it after expiry.
 - Quota is percentage-based (used %, member level, reset time). Daily check-in uses the real `daily_sign_in` endpoint.
 - `unlockPro` (default on) sends the "set as default browser" marker in `unique-uuid` to unlock Premium models. Turning it off may make Premium models return 492.
+
+### OrcaTerm
+
+- The standalone WASM package `agent2api-wasm-orcaterm` moved here from `Agent2Providers` under `provider_category: "web"` while preserving existing provider ID `orcaterm`; it is currently `verified: false` (not yet live-verified in WASM).
+- Supports WeChat QR OAuth login (captured in the desktop embedded window via its custom callback), pasting `ot_session` / Bearer / `data.bin`, and explicitly authorized local `data.bin` import; includes a real refresh endpoint (`OAuthRefreshToken`).
+- Refreshes per-account bucketed model catalogs from Rainbow configuration (with static fallback), exposing per-model image input and reasoning settings (up to 5 images per message, 15 per request).
+- No native upstream client tool-calling endpoint; declares gateway tool emulation per model (`190,000` char budget) and rejects client tool definitions/histories when emulation is disabled. Note that emulated mode collapses multi-turn images into one user message, so the 5-image per-message cap still applies across collapsed images.
+- Usage query reads `hunyuan_ai` quota counts and plan name; daily check-in and campaigns are undeclared.
 
 Tokens, cookies and account exports are sensitive credentials. Do not publish or share them.
 
